@@ -74,7 +74,7 @@ const SYSTEM: Section = (
     "SYSTEM",
     &[
         (": / Ctrl-P", "command palette"),
-        ("s", "share capture QR"),
+        ("s / U", "share QR / update"),
         ("? / ,", "help / settings"),
         ("q / Ctrl-c", "quit"),
     ],

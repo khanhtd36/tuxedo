@@ -17,7 +17,7 @@ A fast, keyboard-driven terminal UI for [todo.txt](http://todotxt.org/).
   wrap_max_lines = 2   # 0 = no limit
   ```
 
-- `tuxedo update` and the in-app "update available" hint follow this fork's releases, not upstream's.
+- tuxedo updates itself from this fork's releases, not upstream's. `tuxedo update` installs the latest release (`--check` only reports it); in the TUI, `U` checks and offers it, and the download runs while you keep working. It works on a running copy, Windows included. A copy installed by Homebrew or Cargo shows the command to run instead.
 
 This list covers behavior you'd notice while using tuxedo day to day; repository/process-only differences (the release pipeline, install scripts, contributor tooling) aren't included here.
 

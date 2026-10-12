@@ -47,6 +47,10 @@ pub enum Mode {
     /// target and no `./todo.txt` exists. `c` creates `./todo.txt`, `s`
     /// opens the bundled sample, `q`/`Esc` quits without creating anything.
     Welcome,
+    /// Update dialog opened by `U` when a newer release is out: `y`
+    /// self-updates, `n`/`Esc` closes. For a copy Homebrew or Cargo manage
+    /// it shows the command to run instead.
+    Update,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

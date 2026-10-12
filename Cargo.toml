@@ -7,11 +7,15 @@ edition = "2024"
 anyhow = "1.0"
 chrono = "0.4.44"
 crossterm = "0.29.0"
+flate2 = "1.1.10"
 getrandom = "0.2"
 notify = "8"
 qrcode = { version = "0.14", default-features = false }
 ratatui = "0.30.0"
+sha2 = "0.11.0"
+tar = { version = "0.4.46", default-features = false }
 tiny_http = "0.12"
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 insta = "1.47"

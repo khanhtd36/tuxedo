@@ -243,6 +243,11 @@ pub const ENTRIES: &[PaletteEntry] = &[
         action: Action::OpenShare,
     },
     PaletteEntry {
+        label: "update tuxedo",
+        keys: "U",
+        action: Action::Update,
+    },
+    PaletteEntry {
         label: "escape / clear",
         keys: "Esc",
         action: Action::EscapeStack,
@@ -565,6 +570,7 @@ mod tests {
             Action::OpenShare,
             Action::OpenThemePicker,
             Action::Reschedule,
+            Action::Update,
         ];
         for a in required {
             assert!(actions.contains(&a), "missing palette entry for {a:?}");

@@ -22,6 +22,7 @@ pub mod status;
 pub mod task_row;
 pub mod theme_picker;
 pub mod title;
+pub mod update;
 pub mod welcome;
 
 // Pane and overlay sizing. Promoted out of inline literals so the three
@@ -158,6 +159,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
             let r = centered_in(area, w, h);
             frame.render_widget(Clear, r);
             share::render(frame, r, app);
+        }
+        Mode::Update => {
+            let (w, h) = update::size_for(app);
+            let r = centered_in(area, w, h);
+            frame.render_widget(Clear, r);
+            update::render(frame, r, app);
         }
         Mode::PickTheme => {
             let h: u16 = area.height.saturating_sub(4).min(PALETTE_MAX_H);

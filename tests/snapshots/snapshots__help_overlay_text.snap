@@ -23,7 +23,7 @@ expression: buffer_to_text(&buf)
      │    u                 undo                                                              │     
      │                                              SYSTEM                                    │     
      │  RECURRENCE (rec:)                             : / Ctrl-P        command palette       │     
-     │    j / k / Tab       next / prev field         s                 share capture QR      │     
+     │    j / k / Tab       next / prev field         s / U             share QR / update     │     
      │    h / l / + / -     change value              ? / ,             help / settings       │     
      │    Enter / Esc       save / cancel             q / Ctrl-c        quit                  │     
      │────────────────────────────────────────────────────────────────────────────────────────│     
