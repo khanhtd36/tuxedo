@@ -1,5 +1,6 @@
 ---
 source: tests/snapshots.rs
+assertion_line: 226
 expression: buffer_to_text(&buf)
 ---
  ▶▮◀ settings  •  19 tasks  •  sort:priority                                                        
@@ -12,6 +13,7 @@ expression: buffer_to_text(&buf)
    theme                       Muted Slate ▾  (T to cycle)                                          
    density                     compact ▾  (D to cycle)                                              
    line numbers                on  (L to toggle)                                                    
+   row wrap                    on, 2 lines max  (w to toggle)                                       
    status bar                  on                                                                   
    filter sidebar              on  ([ to toggle)                                                    
    detail sidebar              on  (] to toggle)                                                    
@@ -23,7 +25,6 @@ expression: buffer_to_text(&buf)
                                                                                                     
  KEYBINDINGS                                                                                        
                                press ? for the full list                                            
-                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     

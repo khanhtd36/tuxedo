@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::{App, GroupKey, Mode, View};
-use crate::ui::{header, keep_cursor_visible, task_row};
+use crate::ui::{header, keep_cursor_row_visible, task_row};
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let theme = app.theme();
@@ -56,7 +56,11 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 
     let mut lines: Vec<Line> = Vec::new();
     let mut last_date: Option<&str> = None;
-    let mut cursor_line: Option<usize> = None;
+    let mut cursor_lines: Option<std::ops::Range<usize>> = None;
+    let wrap = task_row::RowWrap {
+        width: usize::from(body_area.width),
+        max_lines: app.prefs.row_max_lines(),
+    };
 
     for (i, (&abs, gk)) in visible.iter().zip(groups.iter()).enumerate() {
         let date = match gk {
@@ -99,16 +103,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             today: app.today(),
             hidden_keys: &app.prefs.hidden_keys,
         };
+        let row = task_row::build_lines(task, opts, theme, wrap);
         if i == app.cursor {
-            cursor_line = Some(lines.len());
+            cursor_lines = Some(lines.len()..lines.len() + row.len());
         }
-        lines.push(task_row::build_line(task, opts, theme));
+        lines.extend(row);
     }
 
     let scroll_cell = &app.view_scroll[View::Archive.idx()];
-    let scroll = keep_cursor_visible(
+    let scroll = keep_cursor_row_visible(
         scroll_cell.get(),
-        cursor_line,
+        cursor_lines,
         body_area.height,
         lines.len(),
     );

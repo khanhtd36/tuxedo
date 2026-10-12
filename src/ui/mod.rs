@@ -230,6 +230,23 @@ pub(crate) fn keep_cursor_visible(
     new.min(max_offset).min(usize::from(u16::MAX)) as u16
 }
 
+/// [`keep_cursor_visible`] for a cursor row spanning several display lines
+/// (`cursor_lines`, a range of line indices). Brings the last line into view,
+/// then the first, so a row taller than the viewport still shows its start.
+pub(crate) fn keep_cursor_row_visible(
+    prev: u16,
+    cursor_lines: Option<std::ops::Range<usize>>,
+    height: u16,
+    total: usize,
+) -> u16 {
+    let Some(lines) = cursor_lines else {
+        return keep_cursor_visible(prev, None, height, total);
+    };
+    let last = lines.end.saturating_sub(1).max(lines.start);
+    let scroll = keep_cursor_visible(prev, Some(last), height, total);
+    keep_cursor_visible(scroll, Some(lines.start), height, total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::keep_cursor_visible;

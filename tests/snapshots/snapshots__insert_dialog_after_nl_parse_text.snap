@@ -1,36 +1,37 @@
 ---
 source: tests/snapshots.rs
+assertion_line: 226
 expression: buffer_to_text(&buf)
 ---
  FILTERS                   ▶▮◀ /tmp/tuxedo-snapshot.txt  •  15 tas DETAIL                           
                                                                                                     
  PROJECTS                  (2)  PRIORITY A  ────────────────────── priority  (A)                    
-   +work             4      1 ▸ (A) Finish Q2 board deck +work @la created   2026-05-01             
-   +health           3      2   (A) Call dentist to reschedule cle due       2026-05-06  today      
-   +finance          2     (3)  PRIORITY B  ────────────────────── projects  +work                  
-   +home             1      3   (B) Review pull requests for auth  contexts  @laptop                
-   +learning         1      4   (B) Renew passport before summer t                                  
-   +personal         1      5   (B) Draft hiring rubric for senior RAW                              
-   +travel           1     (2)  PRIORITY C  ──────────────────────                                  
-                            6   (C) Pay quarterly estimated taxes  (A) 2026-05-01 Finish Q2 board   
- CONTEXTS                   7   (C) Order new running shoes +healt deck +work @laptop               
-   @errands          4     (8)┌ ADD TASK ────────────────────────────┐:2026-05-06                   
-   @home             4      8 │                                      │                              
-   @laptop           4      9 │  › bank due:2026-06-01 rec:+1m t:-3d█│                              
-   @phone            3     10 │  ok · due 2026-06-01 · 1 +project 1 @│                              
-                           11 │                                      │                              
-                           12 │  format: (A) Buy milk +shop @home due│                              
-                           13 │                                      │                              
-                           14 └──────────────────────────────────────┘                              
-                           15       Replace bathroom faucet washer                                  
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
+   +work             4      1 ▸ (A) Finish Q2 board deck +work     created   2026-05-01             
+   +health           3              @laptop due:2026-05-06         due       2026-05-06  today      
+   +finance          2      2   (A) Call dentist to reschedule     projects  +work                  
+   +home             1              cleaning @phone +health due:2… contexts  @laptop                
+   +learning         1     (3)  PRIORITY B  ──────────────────────                                  
+   +personal         1      3   (B) Review pull requests for auth  RAW                              
+   +travel           1              refactor +work @laptop due:20…                                  
+                            4   (B) Renew passport before summer   (A) 2026-05-01 Finish Q2 board   
+ CONTEXTS                           trip +travel @errands due:202… deck +work @laptop               
+   @errands          4      5 ┌ ADD TASK ────────────────────────────┐:2026-05-06                   
+   @home             4        │                                      │                              
+   @laptop           4     (2)│  › bank due:2026-06-01 rec:+1m t:-3d█│                              
+   @phone            3      6 │  ok · due 2026-06-01 · 1 +project 1 @│                              
+                              │                                      │                              
+                            7 │  format: (A) Buy milk +shop @home due│                              
+                              │                                      │                              
+                           (8)└──────────────────────────────────────┘                              
+                            8       Migrate analytics to new                                        
+                                    pipeline +work @laptop due:20…                                  
+                            9       Pay rent due:2026-05-15                                         
+                                    rec:+1m +finance @home                                          
+                           10       Pick up dry cleaning @errands                                   
+                           11       Schedule annual physical                                        
+                                    @phone +health                                                  
+                           12       Read "Designing Data-Intensive                                  
+                                    Applications" ch. 4 +learning…                                  
+                           13       Send thank-you note to mentor                                   
+                                    @home                                                           
  NORMAL · parsed natural language; press Enter to save   h/l 15 open · 2026-05-06 · tuxedo 2026.8.1

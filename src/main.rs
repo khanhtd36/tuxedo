@@ -840,6 +840,7 @@ fn handle_settings(app: &mut App, key: KeyEvent) {
         KeyCode::Char('T') => apply_action(app, Action::CycleTheme),
         KeyCode::Char('D') => apply_action(app, Action::CycleDensity),
         KeyCode::Char('L') => apply_action(app, Action::ToggleLineNum),
+        KeyCode::Char('w') => apply_action(app, Action::ToggleWrapRows),
         KeyCode::Char('[') => apply_action(app, Action::ToggleLeftPane),
         KeyCode::Char(']') => apply_action(app, Action::ToggleRightPane),
         KeyCode::Char('H') => apply_action(app, Action::ToggleShowDone),
@@ -1091,6 +1092,7 @@ fn resolve_normal_key(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) -> O
         KeyCode::Char('T') => Action::OpenThemePicker,
         KeyCode::Char('D') => Action::CycleDensity,
         KeyCode::Char('L') => Action::ToggleLineNum,
+        KeyCode::Char('w') => Action::ToggleWrapRows,
         KeyCode::Char('H') => Action::ToggleShowDone,
         KeyCode::Char('F') => Action::ToggleShowFuture,
         KeyCode::Esc => Action::EscapeStack,
@@ -1294,6 +1296,10 @@ fn apply_action(app: &mut App, action: Action) {
         Action::CycleDensity => app.cycle_density(),
         Action::ToggleLineNum => {
             app.prefs.toggle_line_num();
+            app.save_prefs();
+        }
+        Action::ToggleWrapRows => {
+            app.prefs.toggle_wrap_rows();
             app.save_prefs();
         }
         Action::ToggleShowDone => {

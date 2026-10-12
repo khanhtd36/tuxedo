@@ -286,6 +286,35 @@ fn list_sidebar_empty_hints() {
 }
 
 #[test]
+fn list_wrap_off() {
+    // Wrap off keeps every row on one line; rows wider than the pane end in
+    // an ellipsis instead of clipping silently at the edge.
+    let mut app = make_app();
+    app.prefs.layout.wrap_rows = false;
+    snapshot_app("list_wrap_off", &app);
+}
+
+#[test]
+fn list_wrap_no_limit() {
+    // `wrap_max_lines = 0` lets a row take as many lines as its text needs.
+    let mut app = make_app();
+    app.prefs.wrap_max_lines = 0;
+    snapshot_app("list_wrap_no_limit", &app);
+}
+
+#[test]
+fn list_wrap_narrow_pane() {
+    // Too little room beside the glyph/priority prefix to wrap usefully:
+    // rows fall back to one line plus an ellipsis.
+    let mut app = make_app();
+    app.prefs.layout.left = false;
+    app.prefs.layout.right = false;
+    // 26 columns leave an 18-cell text column, under MIN_WRAP_TEXT_WIDTH.
+    let text = render_text(&app, 26, 12);
+    insta::assert_snapshot!("list_wrap_narrow_pane_text", text);
+}
+
+#[test]
 fn archive_view() {
     let mut app = make_app();
     app.set_view(View::Archive);
@@ -536,5 +565,33 @@ fn list_scrolls_to_keep_cursor_visible_when_below_fold() {
     assert!(
         text.contains(&label),
         "cursor row {label:?} should be visible in the scrolled viewport:\n{text}"
+    );
+}
+
+#[test]
+fn list_scrolls_to_show_every_line_of_a_wrapped_cursor_row() {
+    // Each row wraps onto a second line. Moving the cursor below the fold
+    // must scroll far enough that the row's continuation line shows too,
+    // not just its first line.
+    let mut body = many_tasks_body(30);
+    body.push_str("2026-05-04 last-row with a long body that wraps tail-marker\n");
+    let mut app = App::new(
+        PathBuf::from(FIXTURE_PATH),
+        body,
+        "2026-05-06".to_string(),
+        Config::default(),
+    );
+    app.prefs.density = Density::Compact;
+    app.prefs.layout.left = false;
+    app.prefs.layout.right = false;
+    while app.prefs.sort != tuxedo::app::Sort::File {
+        app.cycle_sort();
+    }
+    app.cursor = 30;
+
+    let text = render_text(&app, 50, 12);
+    assert!(
+        text.contains("last-row") && text.contains("tail-marker"),
+        "both lines of the wrapped cursor row should be visible:\n{text}"
     );
 }
