@@ -1,11 +1,10 @@
-//! Update-availability check and `tuxedo update` subcommand.
+//! Update check and self-update.
 //!
-//! Two pieces:
+//! Three pieces:
 //!
-//! 1. [`run`] — handler for `tuxedo update`. Detects how tuxedo was installed
-//!    (Homebrew, Cargo, plain binary) and prints the exact command the user
-//!    should run. Does not execute it: we don't want to surprise users with a
-//!    `brew upgrade` or a binary self-replace.
+//! 1. [`run`] — handler for `tuxedo update [--check]`. Finds the latest fork
+//!    release and, unless Homebrew or Cargo manage this copy, self-updates to
+//!    it (see [`install`]). For a managed copy it prints the command to run.
 //!
 //! 2. [`spawn_check`] — background thread invoked at TUI startup that consults
 //!    a cache under `$XDG_CACHE_HOME/tuxedo/latest_version.json`. If the cache
@@ -14,16 +13,24 @@
 //!    the tag through an mpsc channel. The TUI's status bar reads it and
 //!    appends an `↑ <version>` hint when newer than the running build. All
 //!    failures are silent — a stale or missing cache simply means no hint.
+//!
+//! 3. [`check_now`] — the check behind `U` and `tuxedo update`. Asks GitHub
+//!    now rather than trusting the day-old cache, but at most once per
+//!    [`MANUAL_COOLDOWN`] so a held-down `U` can't hammer the API.
 
-use std::io;
+pub mod install;
+
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub use install::{Step, cleanup, release_url};
+
 /// How tuxedo appears to have been installed, judged by the path of the
-/// currently-running executable. Used to recommend the right upgrade command.
+/// currently-running executable. Decides whether it self-updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallKind {
     Homebrew,
@@ -32,52 +39,95 @@ pub enum InstallKind {
     Unknown,
 }
 
-/// Run the `tuxedo update` subcommand: detect install method and print
-/// instructions. Exits with code 0 on success; the caller (`main`) should
-/// `return Ok(())` after invoking this.
-pub fn run() -> io::Result<()> {
-    let exe = std::env::current_exe().ok();
-    let kind = exe
-        .as_deref()
-        .map(detect_kind)
-        .unwrap_or(InstallKind::Unknown);
+impl InstallKind {
+    /// How tuxedo installed as `exe` (if known) is installed.
+    pub fn of(exe: Option<&Path>) -> Self {
+        exe.map(detect_kind).unwrap_or(InstallKind::Unknown)
+    }
+
+    /// What to run instead of a self-update, for a copy tuxedo doesn't
+    /// replace itself. `None` for a [`InstallKind::Binary`], which does.
+    pub fn upgrade_command(self) -> Option<String> {
+        match self {
+            InstallKind::Homebrew => Some(format!("brew update && brew upgrade {BREW_FORMULA}")),
+            InstallKind::Cargo => Some(format!("cargo install --git {REPO_URL} --force")),
+            InstallKind::Unknown => Some(format!("download {REPO_URL}/releases/latest")),
+            InstallKind::Binary => None,
+        }
+    }
+}
+
+/// The latest fork version and, when it came from the cache inside the
+/// cooldown, how many seconds ago it was checked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Latest {
+    pub version: String,
+    pub age_secs: Option<u64>,
+}
+
+/// Run `tuxedo update [--check]`. Returns the process exit code.
+pub fn run(args: &[String]) -> io::Result<i32> {
+    let check_only = match args {
+        [] => false,
+        [a] if a == "--check" => true,
+        _ => {
+            eprintln!("usage: tuxedo update [--check]");
+            return Ok(2);
+        }
+    };
     let current = env!("CARGO_PKG_VERSION");
-    println!("tuxedo {current}");
-    if let Some(p) = &exe {
-        println!("installed at: {}", p.display());
+    let latest = match check_now() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("tuxedo: {e}");
+            return Ok(1);
+        }
+    };
+    let checked = latest
+        .age_secs
+        .map(|s| format!(" (checked {} ago)", format_wait(s)))
+        .unwrap_or_default();
+    let version = latest.version;
+    if !is_newer(&version, current) {
+        println!("tuxedo {current} is the latest{checked}.");
+        return Ok(0);
     }
-    println!();
-    match kind {
-        InstallKind::Homebrew => {
-            println!("Looks like a Homebrew install. Update with:");
-            println!();
-            println!("    brew update && brew upgrade {BREW_FORMULA}");
+    println!("tuxedo {current} → {version}{checked}");
+    println!("{}", release_url(&version));
+    if check_only {
+        return Ok(0);
+    }
+    let exe = std::env::current_exe().ok();
+    let kind = InstallKind::of(exe.as_deref());
+    let (Some(exe), None) = (exe, kind.upgrade_command()) else {
+        println!();
+        println!("This copy doesn't update itself. Instead:");
+        println!();
+        println!("    {}", kind.upgrade_command().unwrap_or_default());
+        return Ok(0);
+    };
+    // One line, rewritten in place as the download goes. Padded rather than
+    // erased with an escape code, which older Windows consoles print raw.
+    let mut width = 0;
+    let result = install::install(&version, &exe, &mut |step| {
+        let line = step.to_string();
+        width = width.max(line.len());
+        print!("\r{line:<width$}");
+        let _ = io::stdout().flush();
+    });
+    if width > 0 {
+        print!("\r{:width$}\r", "");
+    }
+    match result {
+        Ok(()) => {
+            println!("Updated to {version}.");
+            Ok(0)
         }
-        InstallKind::Cargo => {
-            println!("Looks like a `cargo install` build. Update with:");
-            println!();
-            println!("    cargo install --git {REPO_URL} --force");
-        }
-        InstallKind::Binary => {
-            println!("Looks like a downloaded binary. Update with one of:");
-            println!();
-            println!("    winget upgrade {WINGET_ID}");
-            println!("    irm {INSTALL_SITE}/install.ps1 | iex");
-            println!("    curl -fsSL {INSTALL_SITE}/install.sh | sh");
-            println!();
-            println!("...or grab the latest from {REPO_URL}/releases/latest");
-            println!("and replace the file above.");
-        }
-        InstallKind::Unknown => {
-            println!("Could not detect the install method. Options:");
-            println!();
-            println!("    brew upgrade {BREW_FORMULA}");
-            println!("    winget upgrade {WINGET_ID}");
-            println!("    cargo install --git {REPO_URL} --force");
-            println!("    {REPO_URL}/releases/latest");
+        Err(e) => {
+            eprintln!("tuxedo: update failed: {e}");
+            Ok(1)
         }
     }
-    Ok(())
 }
 
 /// Classify an executable path into an [`InstallKind`]. Exposed for tests.
@@ -121,15 +171,17 @@ const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// stop hammering GitHub once anonymous API calls have been rate-limited
 /// (which is what burned us once during testing).
 const NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+/// Shortest gap between two GitHub calls from [`check_now`]; inside it, the
+/// cached answer (success or failure) stands.
+pub const MANUAL_COOLDOWN: Duration = Duration::from_secs(2 * 60);
 const CURL_TIMEOUT_SECS: u64 = 5;
 const RELEASE_URL: &str = "https://api.github.com/repos/khanhtd36/tuxedo/releases/latest";
 
 // This is khanhtd36's fork: updates come from its releases, never upstream's,
-// so following an upgrade hint can't replace the fork with upstream tuxedo.
+// so neither a self-update nor an upgrade hint can replace the fork with
+// upstream tuxedo.
 const REPO_URL: &str = "https://github.com/khanhtd36/tuxedo";
 const BREW_FORMULA: &str = "khanhtd36/tap/tuxedo-khanhtd36";
-const WINGET_ID: &str = "khanhtd36.tuxedo-khanhtd36";
-const INSTALL_SITE: &str = "https://tuxedo.khanhtd36.dev";
 
 /// Fork release tags carry a `fork-` prefix (`fork-v2026.8.1-khanhtd36.1`)
 /// so they never collide with upstream's `v*` tags. Drop it so the tag reads
@@ -165,6 +217,74 @@ fn check_for_update() -> Option<String> {
         let _ = write_cache(p, now, tag.as_deref().unwrap_or(""));
     }
     tag
+}
+
+/// Find the latest fork version for `U` or `tuxedo update`: from GitHub,
+/// unless the cache was written within [`MANUAL_COOLDOWN`]. Shares the cache
+/// with the background check, so the cooldown holds across restarts and
+/// between tuxedo windows. Errors are user-facing sentences.
+pub fn check_now() -> Result<Latest, String> {
+    let cache_path = cache_path();
+    let now = now_epoch();
+    let cached = cache_path.as_deref().and_then(read_cache);
+    match decide_manual(cached, now) {
+        Manual::Cached { tag, age_secs } => Ok(Latest {
+            version: tag,
+            age_secs: Some(age_secs),
+        }),
+        Manual::CoolingDown { retry_in_secs } => Err(format!(
+            "couldn't check for updates, try again in {}",
+            format_wait(retry_in_secs)
+        )),
+        Manual::Fetch => {
+            let tag = fetch_latest_body()
+                .and_then(|b| parse_tag_from_release_json(&b))
+                .map(|t| strip_fork_prefix(&t).to_string());
+            if let Some(p) = &cache_path {
+                let _ = write_cache(p, now, tag.as_deref().unwrap_or(""));
+            }
+            tag.map(|version| Latest {
+                version,
+                age_secs: None,
+            })
+            .ok_or_else(|| "couldn't check for updates".to_string())
+        }
+    }
+}
+
+/// What [`check_now`] does given the cache entry `(checked_at, tag)`.
+#[derive(Debug, PartialEq, Eq)]
+enum Manual {
+    Cached { tag: String, age_secs: u64 },
+    CoolingDown { retry_in_secs: u64 },
+    Fetch,
+}
+
+fn decide_manual(cached: Option<(u64, String)>, now: u64) -> Manual {
+    let cooldown = MANUAL_COOLDOWN.as_secs();
+    match cached {
+        // A cache stamped in the future (clock moved back) counts as stale.
+        Some((ts, tag)) if ts <= now && now - ts < cooldown => {
+            let age_secs = now - ts;
+            if tag.is_empty() {
+                Manual::CoolingDown {
+                    retry_in_secs: cooldown - age_secs,
+                }
+            } else {
+                Manual::Cached { tag, age_secs }
+            }
+        }
+        _ => Manual::Fetch,
+    }
+}
+
+/// `100` → `1m40s`, `40` → `40s`.
+pub fn format_wait(secs: u64) -> String {
+    match (secs / 60, secs % 60) {
+        (0, s) => format!("{s}s"),
+        (m, 0) => format!("{m}m"),
+        (m, s) => format!("{m}m{s}s"),
+    }
 }
 
 fn fetch_latest_body() -> Option<String> {
@@ -353,6 +473,56 @@ mod tests {
             detect_kind(&PathBuf::from("/tmp/tuxedo")),
             InstallKind::Binary
         );
+    }
+
+    #[test]
+    fn detect_kind_winget_package_is_binary() {
+        let exe = PathBuf::from(
+            r"C:\Users\m\AppData\Local\Microsoft\WinGet\Packages\khanhtd36.tuxedo-khanhtd36__DefaultSource\tuxedo.exe",
+        );
+        assert_eq!(detect_kind(&exe), InstallKind::Binary);
+        assert_eq!(InstallKind::Binary.upgrade_command(), None);
+        assert!(InstallKind::of(None).upgrade_command().is_some());
+    }
+
+    #[test]
+    fn decide_manual_fetches_without_fresh_cache() {
+        assert_eq!(decide_manual(None, 1_000), Manual::Fetch);
+        assert_eq!(
+            decide_manual(Some((800, "1.0".into())), 1_000),
+            Manual::Fetch
+        );
+        // Stamped in the future: the clock moved back, so don't trust it.
+        assert_eq!(
+            decide_manual(Some((2_000, "1.0".into())), 1_000),
+            Manual::Fetch
+        );
+    }
+
+    #[test]
+    fn decide_manual_reuses_answer_inside_cooldown() {
+        assert_eq!(
+            decide_manual(Some((960, "1.0".into())), 1_000),
+            Manual::Cached {
+                tag: "1.0".into(),
+                age_secs: 40
+            }
+        );
+    }
+
+    #[test]
+    fn decide_manual_cools_down_after_failure() {
+        assert_eq!(
+            decide_manual(Some((980, String::new())), 1_000),
+            Manual::CoolingDown { retry_in_secs: 100 }
+        );
+    }
+
+    #[test]
+    fn format_wait_reads_as_minutes_and_seconds() {
+        assert_eq!(format_wait(40), "40s");
+        assert_eq!(format_wait(100), "1m40s");
+        assert_eq!(format_wait(120), "2m");
     }
 
     #[test]

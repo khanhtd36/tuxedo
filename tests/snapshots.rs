@@ -13,7 +13,8 @@
 //! snapshots, or `INSTA_UPDATE=auto cargo test --test snapshots` to bulk-accept
 //! during local iteration.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -22,12 +23,13 @@ use ratatui::style::{Color, Modifier};
 
 use tuxedo::app::{
     App, BuilderField, CalendarState, CalendarTarget, Density, DraftOverlay, Mode,
-    PriorityChooserState, RecurrenceBuilderState, SlashMenuState, View,
+    PriorityChooserState, RecurrenceBuilderState, SlashMenuState, UpdateOps, UpdatePhase, View,
 };
 use tuxedo::config::Config;
 use tuxedo::recurrence::RecUnit;
 use tuxedo::sample;
 use tuxedo::ui;
+use tuxedo::update::{Latest, Step};
 
 const COLS: u16 = 100;
 const ROWS: u16 = 32;
@@ -600,4 +602,118 @@ fn list_scrolls_to_show_every_line_of_a_wrapped_cursor_row() {
         text.contains("last-row") && text.contains("tail-marker"),
         "both lines of the wrapped cursor row should be visible:\n{text}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// In-app update
+// ---------------------------------------------------------------------------
+
+/// Fixed newer version so the dialog and status bar don't depend on GitHub.
+const UPDATE_VERSION: &str = "9999.1.1";
+
+fn update_newer() -> Result<Latest, String> {
+    Ok(Latest {
+        version: UPDATE_VERSION.to_string(),
+        age_secs: None,
+    })
+}
+
+fn update_install_ok(_: &str, _: &Path, report: &mut dyn FnMut(Step)) -> Result<(), String> {
+    report(Step::Verifying);
+    Ok(())
+}
+
+/// Reports one download step, then never finishes: holds the app in the
+/// downloading phase. The thread dies with the test process.
+fn update_install_stalls(_: &str, _: &Path, report: &mut dyn FnMut(Step)) -> Result<(), String> {
+    report(Step::Downloading {
+        done: 3_100_000,
+        total: Some(4_000_000),
+    });
+    std::thread::sleep(Duration::from_secs(3600));
+    Ok(())
+}
+
+fn update_binary_exe() -> Option<PathBuf> {
+    Some(PathBuf::from("/opt/tuxedo/tuxedo"))
+}
+
+fn update_homebrew_exe() -> Option<PathBuf> {
+    Some(PathBuf::from("/opt/homebrew/bin/tuxedo"))
+}
+
+fn update_app(ops: UpdateOps) -> App {
+    let mut app = make_app();
+    app.prefs.layout.left = false;
+    app.prefs.layout.right = false;
+    app.set_update_ops(ops);
+    app
+}
+
+/// Poll the app until `done` holds, for the update's background thread.
+fn settle_update(app: &mut App, done: impl Fn(&App) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !done(app) {
+        assert!(Instant::now() < deadline, "update never settled");
+        app.poll_self_update();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn open_update_dialog(ops: UpdateOps) -> App {
+    let mut app = update_app(ops);
+    app.request_update();
+    settle_update(&mut app, |a| a.mode == Mode::Update);
+    app
+}
+
+#[test]
+fn update_dialog_offers_install() {
+    let app = open_update_dialog(UpdateOps {
+        check: update_newer,
+        install: update_install_ok,
+        exe: update_binary_exe,
+    });
+    snapshot_app("update_dialog_offers_install", &app);
+}
+
+#[test]
+fn update_dialog_shows_command_for_managed_copy() {
+    let app = open_update_dialog(UpdateOps {
+        check: update_newer,
+        install: update_install_ok,
+        exe: update_homebrew_exe,
+    });
+    snapshot_app("update_dialog_shows_command_for_managed_copy", &app);
+}
+
+#[test]
+fn update_status_while_downloading() {
+    let mut app = open_update_dialog(UpdateOps {
+        check: update_newer,
+        install: update_install_stalls,
+        exe: update_binary_exe,
+    });
+    app.accept_update();
+    settle_update(&mut app, |a| {
+        matches!(
+            a.update_phase(),
+            UpdatePhase::Installing { step: Some(_), .. }
+        )
+    });
+    snapshot_app("update_status_while_downloading", &app);
+}
+
+#[test]
+fn update_status_after_install() {
+    let mut app = open_update_dialog(UpdateOps {
+        check: update_newer,
+        install: update_install_ok,
+        exe: update_binary_exe,
+    });
+    app.accept_update();
+    settle_update(&mut app, |a| {
+        matches!(a.update_phase(), UpdatePhase::Installed { .. })
+    });
+    snapshot_app("update_status_after_install", &app);
 }

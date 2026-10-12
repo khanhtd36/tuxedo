@@ -62,6 +62,8 @@ pub enum Action {
     /// Open the theme picker dialog (j/k to preview, Enter to accept).
     OpenThemePicker,
     ChangeWeekStart,
+    /// Check for a newer fork release and offer to self-update (`U`).
+    Update,
 }
 
 impl Action {
@@ -118,6 +120,7 @@ impl Action {
             "open_share" | "share" => Some(Self::OpenShare),
             "open_theme_picker" | "theme_picker" => Some(Self::OpenThemePicker),
             "change_week_start" => Some(Self::ChangeWeekStart),
+            "update" | "self_update" => Some(Self::Update),
             _ => None,
         }
     }

@@ -37,5 +37,13 @@ _Avoid_: install script (singular: there are two)
 **Fork winget package**:
 `khanhtd36.tuxedo-khanhtd36` in winget-pkgs, updated by each fork release.
 
+**Self-update**:
+tuxedo replacing its own executable with the latest fork release: download the asset for this platform, verify its `.sha256`, swap it in. Works while tuxedo is running; on Windows the running executable is renamed aside (`tuxedo.exe.old`) and removed at a later start. Copies managed by Homebrew or Cargo don't self-update; tuxedo prints their upgrade command instead. A copy in the fork winget package's folder does self-update, so winget's recorded version can lag the real one.
+_Avoid_: in-place update, auto-update, upgrade
+
+**In-app update**:
+A self-update started from the TUI rather than from `tuxedo update`.
+_Avoid_: in-place update
+
 **Fork Homebrew formula**:
 `khanhtd36/tap/tuxedo-khanhtd36` in `khanhtd36/homebrew-tap`, rewritten by each fork release. Conflicts with upstream's `tuxedo` formula.

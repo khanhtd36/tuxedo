@@ -32,6 +32,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         Mode::Share => "SHARE".into(),
         Mode::PickTheme => "PICK THEME".into(),
         Mode::Welcome => "WELCOME".into(),
+        Mode::Update => "UPDATE".into(),
     };
     if matches!(app.view, View::Archive) {
         mode_label = "ARCHIVE".into();
@@ -59,6 +60,10 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         Mode::CommandPalette => "type to filter · Enter run · Esc cancel",
         Mode::Share => "scan the QR · any key dismisses",
         Mode::Welcome => "c create ./todo.txt · s open sample · q quit",
+        Mode::Update => match app.update_offer() {
+            Some(offer) if offer.command.is_none() => "y install · n cancel",
+            _ => "Esc close",
+        },
         _ => "j/k · n new · r reschedule · x done · / search · ? help · u undo · q quit",
     };
 
@@ -74,10 +79,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     right_parts.push(app.today().to_string());
     right_parts.push(concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION")).to_string());
     // Track where the update suffix would slot in so we can paint it in the
-    // accent color (the rest of the right text is dim).
-    let update_suffix = app
-        .update_available()
-        .map(|tag| format!(" · ↑ {tag} (tuxedo update)"));
+    // accent color (the rest of the right text is dim), or the overdue color
+    // when it reports a failed update.
+    let update_note = app.update_note();
+    let update_color = match update_note {
+        Some((_, true)) => theme.overdue,
+        _ => theme.accent,
+    };
+    let update_suffix = update_note.map(|(note, _)| format!(" · {note}"));
     let right_text = right_parts.join(" · ");
 
     // Append a chord indicator (e.g. " g…") so two-key sequences like gg/dd/fp
@@ -130,7 +139,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled(
                 suffix,
                 Style::default()
-                    .fg(theme.accent)
+                    .fg(update_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" ", Style::default().fg(theme.dim)),

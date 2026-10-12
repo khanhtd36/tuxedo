@@ -24,6 +24,7 @@ mod picker;
 mod prefs;
 mod saved;
 mod selection;
+mod self_update;
 mod types;
 mod visibility;
 
@@ -45,6 +46,7 @@ pub use flash::Flash;
 pub use palette::CommandPaletteState;
 pub use prefs::{Layout, Prefs};
 pub use selection::Selection;
+pub use self_update::{UpdateOffer, UpdateOps, UpdatePhase};
 pub use types::{
     AUTOCOMPLETE_CAP, AddOutcome, Density, FLASH_TTL, Filter, LEADER_WINDOW, Mode, SavedFilter,
     Sort, UNDO_LIMIT, View,
@@ -127,6 +129,8 @@ pub struct App {
     /// Receiver for the background update check. Drained each tick; cleared
     /// once a result has been received or the sender hung up.
     update_check: Option<Receiver<Option<String>>>,
+    /// In-app update started with `U`: its phase, dialog and background work.
+    self_update: self_update::SelfUpdate,
     /// User-named saved searches, loaded from config at startup and
     /// upserted via `fs`. Recalled with the `ff` picker.
     pub saved_filters: Vec<SavedFilter>,
@@ -210,6 +214,7 @@ impl App {
             visible_groups: Vec::new(),
             latest_version: None,
             update_check: None,
+            self_update: self_update::SelfUpdate::default(),
             saved_filters,
             saved_pick_restore: None,
             saved_pick_idx: 0,

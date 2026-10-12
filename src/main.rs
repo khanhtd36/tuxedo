@@ -24,6 +24,9 @@ const EVENT_POLL: Duration = Duration::from_millis(250);
 
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if let Ok(exe) = std::env::current_exe() {
+        update::cleanup(&exe); // the copy a previous self-update moved aside
+    }
     // A recognized subcommand (possibly preceded by `-f`/`--json`) runs the
     // one-shot CLI and exits; otherwise we fall through to the TUI.
     if let Some(code) = tuxedo::cmd::run(&argv)? {
@@ -41,10 +44,7 @@ fn main() -> Result<()> {
             println!("tuxedo {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
-        Some("update") => {
-            update::run()?;
-            return Ok(());
-        }
+        Some("update") => std::process::exit(update::run(&argv[1..])?),
         Some("--sample") => (cli::sample_path()?, Mode::Normal),
         Some(s) if s.starts_with('-') => {
             eprintln!("tuxedo: unknown option: {s}");
@@ -134,7 +134,7 @@ fn main() -> Result<()> {
 fn print_usage() {
     println!("usage: tuxedo [FILE]                 launch the TUI");
     println!("       tuxedo <command> [args]       run a one-shot command");
-    println!("       tuxedo update");
+    println!("       tuxedo update [--check]");
     println!();
     println!("Without FILE or a command, opens ./todo.txt if present; otherwise");
     println!("prompts to create ./todo.txt here or open a sample todo.txt, in");
@@ -159,7 +159,9 @@ fn print_usage() {
     println!("  listpri, lsp [PRIORITY]   list prioritized tasks");
     println!("  listproj, lsprj           list +projects");
     println!("  listcon, lsc              list @contexts");
-    println!("  update                    print instructions for upgrading tuxedo");
+    println!(
+        "  update [--check]          update tuxedo to the latest release (--check: only report it)"
+    );
     println!();
     println!("Options:");
     println!("  -f, --force      skip confirmation prompts (e.g. for del)");
@@ -196,6 +198,11 @@ fn run(
         // Pick up the update-check result so the status-bar indicator can
         // appear without waiting for a keystroke.
         if app.poll_update_check() {
+            dirty = true;
+        }
+        // Follow an in-app update: its check result opens the dialog, its
+        // download progress repaints the status bar.
+        if app.poll_self_update() {
             dirty = true;
         }
         // Poll the config hot-reload watcher. On signal, reload strictly
@@ -352,6 +359,7 @@ fn handle_key(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) {
         Mode::PickTheme => handle_pick_theme(app, key),
         Mode::CommandPalette => handle_command_palette(app, key),
         Mode::Share => handle_share(app, key),
+        Mode::Update => handle_update(app, key),
         Mode::Welcome => handle_welcome(app, key),
         Mode::Normal | Mode::Visual => handle_normal(app, key, keybinds),
     }
@@ -391,6 +399,16 @@ fn handle_welcome(app: &mut App, key: KeyEvent) {
 /// same QR without rebinding.
 fn handle_share(app: &mut App, _key: KeyEvent) {
     app.mode = Mode::Normal;
+}
+
+/// Update dialog: `y` installs, `n`/`Esc`/`q` close. Other keys are ignored
+/// so a stray press doesn't pick for the user.
+fn handle_update(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('y') => app.accept_update(),
+        KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => app.dismiss_update(),
+        _ => {}
+    }
 }
 
 /// What the draft buffer changed (or didn't) in response to a key. Lets
@@ -1097,6 +1115,7 @@ fn resolve_normal_key(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) -> O
         KeyCode::Char('F') => Action::ToggleShowFuture,
         KeyCode::Esc => Action::EscapeStack,
         KeyCode::Char('W') => Action::ChangeWeekStart,
+        KeyCode::Char('U') => Action::Update,
         _ => return None,
     })
 }
@@ -1324,6 +1343,7 @@ fn apply_action(app: &mut App, action: Action) {
             }
             Err(e) => app.flash(format!("share unavailable: {e}")),
         },
+        Action::Update => app.request_update(),
         Action::OpenThemePicker => {
             if theme::all().len() <= 1 {
                 app.flash("only one theme");
