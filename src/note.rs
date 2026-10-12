@@ -18,8 +18,8 @@ pub fn notes_dir_from_config(configured: Option<&str>) -> PathBuf {
     if let Some(value) = std::env::var_os("NOTES_DIR") {
         return PathBuf::from(value);
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join("notes");
+    if let Some(home) = crate::xdg::home_dir() {
+        return home.join("notes");
     }
     PathBuf::from("notes")
 }
@@ -118,14 +118,14 @@ pub fn note_template(task: &Task) -> String {
 
 fn expand_note_dir(value: &str) -> PathBuf {
     if value == "~"
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = crate::xdg::home_dir()
     {
-        return PathBuf::from(home);
+        return home;
     }
     if let Some(rest) = value.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = crate::xdg::home_dir()
     {
-        return PathBuf::from(home).join(rest);
+        return home.join(rest);
     }
     PathBuf::from(value)
 }

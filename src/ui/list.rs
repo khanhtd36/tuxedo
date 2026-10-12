@@ -125,7 +125,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn display_path(p: &std::path::Path) -> String {
-    if let Some(home) = std::env::var_os("HOME")
+    if let Some(home) = crate::xdg::home_dir()
         && let Ok(rel) = p.strip_prefix(&home)
     {
         return format!("~/{}", rel.display());

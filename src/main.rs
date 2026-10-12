@@ -112,7 +112,7 @@ fn main() -> Result<()> {
     let terminal = ratatui::init();
     // Give the window/tab a consistent `tuxedo <path>` title across terminals
     // and operating systems, shortening long paths to fit a fixed budget.
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let home = tuxedo::xdg::home_dir();
     let title = ui::title::terminal_title(&path, home.as_deref(), ui::title::DEFAULT_BUDGET);
     let _ = crossterm::execute!(io::stdout(), crossterm::terminal::SetTitle(title));
     let result = run(terminal, &mut app_state, &keybinds, config_rx);

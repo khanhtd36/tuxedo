@@ -19,6 +19,16 @@ pub fn config_home() -> Option<PathBuf> {
             p.display()
         );
     }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config"))
+    Some(home_dir()?.join(".config"))
+}
+
+/// Resolve the user's home directory: `$HOME`, else `%USERPROFILE%`.
+/// Native Windows shells (PowerShell, cmd) don't set `HOME`; without the
+/// fallback the config, themes and keybinds would never load there.
+pub fn home_dir() -> Option<PathBuf> {
+    ["HOME", "USERPROFILE"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .find(|v| !v.is_empty())
+        .map(PathBuf::from)
 }

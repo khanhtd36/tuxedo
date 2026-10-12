@@ -249,8 +249,7 @@ fn xdg_cache_home() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".cache"))
+    Some(crate::xdg::home_dir()?.join(".cache"))
 }
 
 fn now_epoch() -> u64 {
