@@ -66,6 +66,7 @@ const VIEW: Section = (
         ("T", "theme picker"),
         ("D", "cycle density"),
         ("L", "toggle line numbers"),
+        ("w", "toggle row wrap"),
     ],
 );
 

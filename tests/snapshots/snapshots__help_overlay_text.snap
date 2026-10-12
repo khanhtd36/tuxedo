@@ -1,5 +1,6 @@
 ---
 source: tests/snapshots.rs
+assertion_line: 226
 expression: buffer_to_text(&buf)
 ---
  FILTERS                   ▶▮◀ /tmp/tuxedo-snapshot.txt  •  15 tas DETAIL                           
@@ -19,18 +20,18 @@ expression: buffer_to_text(&buf)
    @l│    J / K             move task down / up       T                 theme picker          │     
    @p│    c                 add/remove context        D                 cycle density         │     
      │    +                 add project               L                 toggle line numbers   │     
-     │    yy / yb           copy line / body                                                  │     
-     │    u                 undo                    SYSTEM                                    │     
-     │                                                : / Ctrl-P        command palette       │     
-     │  RECURRENCE (rec:)                             s                 share capture QR      │     
-     │    j / k / Tab       next / prev field         ? / ,             help / settings       │     
-     │    h / l / + / -     change value              q / Ctrl-c        quit                  │     
-     │    Enter / Esc       save / cancel                                                     │     
+     │    yy / yb           copy line / body          w                 toggle row wrap       │     
+     │    u                 undo                                                              │     
+     │                                              SYSTEM                                    │     
+     │  RECURRENCE (rec:)                             : / Ctrl-P        command palette       │     
+     │    j / k / Tab       next / prev field         s                 share capture QR      │     
+     │    h / l / + / -     change value              ? / ,             help / settings       │     
+     │    Enter / Esc       save / cancel             q / Ctrl-c        quit                  │     
      │────────────────────────────────────────────────────────────────────────────────────────│     
      │  FORMAT                                                                                │     
      │    (A)               priority A-Z              due:YYYY-MM-DD    due date (+1w = range)│     
      │    YYYY-MM-DD        creation / done date      rec:Nu            recur (u in d/w/m/y/b)│     
      │    +project          project tag(s)            rec:+Nu           strict: anchor on due:│     
      └────────────────────────────────────────────────────────────────────────────────────────┘     
-                                                                                                    
+                                    @home                                                           
  HELP   ? close help                                         15 open · 2026-05-06 · tuxedo 2026.8.1

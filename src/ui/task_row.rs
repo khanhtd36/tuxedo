@@ -21,7 +21,198 @@ pub struct RowOpts<'a> {
     pub hidden_keys: &'a [String],
 }
 
+/// How a task row may spread over display lines.
+#[derive(Clone, Copy, Debug)]
+pub struct RowWrap {
+    /// Width of the pane the row renders into, in cells.
+    pub width: usize,
+    /// Most display lines one task row may take; `0` means no limit. A row
+    /// with more text than fits ends its last line in [`ELLIPSIS`].
+    pub max_lines: usize,
+}
+
+/// Narrowest text column worth wrapping into. A pane leaving less room than
+/// this after the glyph/priority prefix keeps each row on a single line.
+pub const MIN_WRAP_TEXT_WIDTH: usize = 20;
+
+/// Marks the end of a row whose text didn't fit its display lines.
+pub const ELLIPSIS: &str = "…";
+
 pub fn build_line<'a>(task: &'a Task, opts: RowOpts<'a>, theme: &Theme) -> Line<'a> {
+    build_line_parts(task, opts, theme).0
+}
+
+/// Build a task row as one or more display lines. Continuation lines indent
+/// to the column where the task text starts, so the glyph and priority stay
+/// a clean column. Rows that fit on one line come back exactly as
+/// [`build_line`] renders them.
+pub fn build_lines<'a>(
+    task: &'a Task,
+    opts: RowOpts<'a>,
+    theme: &Theme,
+    wrap: RowWrap,
+) -> Vec<Line<'a>> {
+    let (line, prefix_len) = build_line_parts(task, opts, theme);
+    let indent: usize = line.spans[..prefix_len].iter().map(Span::width).sum();
+    let text_width = wrap.width.saturating_sub(indent);
+    // No room for even one cell of text beside the ellipsis: leave the row
+    // to clip at the pane edge as before.
+    if text_width < 2 {
+        return vec![line];
+    }
+    let max_lines = if text_width < MIN_WRAP_TEXT_WIDTH {
+        1
+    } else {
+        wrap.max_lines
+    };
+
+    let cells = body_cells(&line.spans[prefix_len..]);
+    let (ranges, truncated) = layout_body(&cells, text_width, max_lines);
+    if ranges.len() <= 1 && !truncated {
+        return vec![line];
+    }
+
+    let line_style = line.style;
+    let last = ranges.len() - 1;
+    let mut out = Vec::with_capacity(ranges.len());
+    for (i, range) in ranges.into_iter().enumerate() {
+        let mut spans: Vec<Span<'a>> = if i == 0 {
+            line.spans[..prefix_len].to_vec()
+        } else {
+            vec![Span::raw(" ".repeat(indent))]
+        };
+        push_cell_spans(&mut spans, &cells[range]);
+        if truncated && i == last {
+            spans.push(Span::styled(ELLIPSIS, Style::default().fg(theme.dim)));
+        }
+        out.push(Line::from(spans).style(line_style));
+    }
+    out
+}
+
+/// One grapheme of the task text with its resolved style.
+struct BodyCell {
+    symbol: String,
+    style: Style,
+    width: usize,
+    space: bool,
+}
+
+fn body_cells(spans: &[Span<'_>]) -> Vec<BodyCell> {
+    spans
+        .iter()
+        .flat_map(|span| span.styled_graphemes(Style::default()))
+        .map(|g| BodyCell {
+            symbol: g.symbol.to_string(),
+            style: g.style,
+            width: Span::raw(g.symbol).width(),
+            space: g.symbol.chars().all(char::is_whitespace),
+        })
+        .collect()
+}
+
+/// Split `cells` into display lines no wider than `width`, breaking between
+/// words and hard-breaking only a word too long for a line of its own.
+/// With `max_lines > 0`, extra lines are dropped and the last kept line
+/// refilled up to one cell short of `width`, leaving room for the ellipsis.
+/// Returns the cell range of each line and whether text was cut.
+fn layout_body(
+    cells: &[BodyCell],
+    width: usize,
+    max_lines: usize,
+) -> (Vec<std::ops::Range<usize>>, bool) {
+    let mut lines = wrap_words(cells, width);
+    if max_lines == 0 || lines.len() <= max_lines {
+        return (lines, false);
+    }
+    lines.truncate(max_lines);
+    let start = lines[max_lines - 1].start;
+    let room = width - 1; // the ellipsis is one cell wide
+    let mut end = start;
+    let mut used = 0;
+    while end < cells.len() && used + cells[end].width <= room {
+        used += cells[end].width;
+        end += 1;
+    }
+    while end > start && cells[end - 1].space {
+        end -= 1;
+    }
+    lines[max_lines - 1] = start..end;
+    (lines, true)
+}
+
+fn wrap_words(cells: &[BodyCell], width: usize) -> Vec<std::ops::Range<usize>> {
+    let mut lines = Vec::new();
+    let mut line: Option<(usize, usize)> = None; // (start, end) of the open line
+    let mut line_width = 0;
+    let mut i = 0;
+    while i < cells.len() {
+        let gap_start = i;
+        while i < cells.len() && cells[i].space {
+            i += 1;
+        }
+        let gap_width: usize = cells[gap_start..i].iter().map(|c| c.width).sum();
+        let word_start = i;
+        while i < cells.len() && !cells[i].space {
+            i += 1;
+        }
+        if word_start == i {
+            break; // trailing whitespace
+        }
+        let word_width: usize = cells[word_start..i].iter().map(|c| c.width).sum();
+
+        if let Some((start, _)) = line
+            && line_width + gap_width + word_width <= width
+        {
+            line = Some((start, i));
+            line_width += gap_width + word_width;
+            continue;
+        }
+        if let Some((start, end)) = line.take() {
+            lines.push(start..end);
+        }
+        // The word opens a fresh line; hard-break it if it's wider than one.
+        let mut start = word_start;
+        line_width = 0;
+        for (j, cell) in cells.iter().enumerate().take(i).skip(word_start) {
+            if line_width > 0 && line_width + cell.width > width {
+                lines.push(start..j);
+                start = j;
+                line_width = 0;
+            }
+            line_width += cell.width;
+        }
+        line = Some((start, i));
+    }
+    if let Some((start, end)) = line {
+        lines.push(start..end);
+    }
+    lines
+}
+
+/// Append `cells` as spans, merging runs that share a style.
+fn push_cell_spans(spans: &mut Vec<Span<'_>>, cells: &[BodyCell]) {
+    let mut run = String::new();
+    let mut run_style: Option<Style> = None;
+    for cell in cells {
+        if run_style.is_some_and(|s| s != cell.style) {
+            spans.push(Span::styled(
+                std::mem::take(&mut run),
+                run_style.unwrap_or_default(),
+            ));
+        }
+        run_style = Some(cell.style);
+        run.push_str(&cell.symbol);
+    }
+    if let Some(style) = run_style {
+        spans.push(Span::styled(run, style));
+    }
+}
+
+/// Build the single-line row, returning it with the number of leading spans
+/// that form the prefix (line number, selection mark, glyph, priority) ahead
+/// of the task text.
+fn build_line_parts<'a>(task: &'a Task, opts: RowOpts<'a>, theme: &Theme) -> (Line<'a>, usize) {
     let mut spans: Vec<Span<'a>> = Vec::new();
 
     if opts.show_line_num {
@@ -74,6 +265,7 @@ pub fn build_line<'a>(task: &'a Task, opts: RowOpts<'a>, theme: &Theme) -> Line<
     } else {
         spans.push(Span::raw("    "));
     }
+    let prefix_len = spans.len();
 
     // body — walk &str slices instead of collecting Vec<char>. Spans borrow
     // straight from `task.raw`, so most rows allocate only for the format!()
@@ -141,7 +333,7 @@ pub fn build_line<'a>(task: &'a Task, opts: RowOpts<'a>, theme: &Theme) -> Line<
     } else {
         Style::default()
     };
-    Line::from(spans).style(line_style)
+    (Line::from(spans).style(line_style), prefix_len)
 }
 
 fn push_token_spans<'a>(
@@ -558,5 +750,114 @@ mod tests {
             body_text("Pay rent due:2026-05-15 uid:x", &h),
             "Pay rent due:2026-05-15",
         );
+    }
+
+    fn wrapped(raw: &str, width: usize, max_lines: usize) -> Vec<String> {
+        let task = parse_line(raw).unwrap();
+        let opts = RowOpts {
+            today: "2026-05-06",
+            ..RowOpts::default()
+        };
+        build_lines(&task, opts, &MUTED, RowWrap { width, max_lines })
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect()
+    }
+
+    // Rows built without line numbers start with a 6-cell prefix: a 2-cell
+    // glyph plus the 4-cell priority box.
+
+    #[test]
+    fn short_row_stays_one_line() {
+        assert_eq!(wrapped("Buy milk", 40, 2), vec!["      Buy milk"]);
+    }
+
+    #[test]
+    fn wraps_between_words_and_indents_continuation() {
+        assert_eq!(
+            wrapped("one two three four five six", 26, 0),
+            vec!["      one two three four", "      five six"],
+        );
+    }
+
+    #[test]
+    fn limit_ends_last_line_in_ellipsis() {
+        // Text column is 20 cells; the second line refills to 19, then `…`.
+        assert_eq!(
+            wrapped("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii", 26, 2),
+            vec!["      aaaa bbbb cccc dddd", "      eeee ffff gggg hhhh…"],
+        );
+    }
+
+    #[test]
+    fn limit_of_one_cuts_mid_word() {
+        assert_eq!(
+            wrapped("aaaa bbbb cccc dddd eeeeeeee", 26, 1),
+            vec!["      aaaa bbbb cccc dddd…"],
+        );
+        assert_eq!(
+            wrapped("aaaa bbbb cccc ddddddddd", 26, 1),
+            vec!["      aaaa bbbb cccc dddd…"],
+        );
+    }
+
+    #[test]
+    fn ellipsis_drops_trailing_space() {
+        // The 19-cell refill would end on the space after "dddd".
+        assert_eq!(
+            wrapped("aaaa bbbb cccc ddd eeeeeeeeee", 26, 1),
+            vec!["      aaaa bbbb cccc ddd…"],
+        );
+    }
+
+    #[test]
+    fn hard_breaks_word_longer_than_a_line() {
+        assert_eq!(
+            wrapped("go https://example.com/a/very/long/path", 26, 0),
+            vec![
+                "      go",
+                "      https://example.com/",
+                "      a/very/long/path",
+            ],
+        );
+    }
+
+    #[test]
+    fn wide_graphemes_count_two_cells() {
+        // Ten 2-cell CJK chars fill the 20-cell text column exactly.
+        assert_eq!(
+            wrapped("漢字漢字漢字漢字漢字 next", 26, 0),
+            vec!["      漢字漢字漢字漢字漢字", "      next"],
+        );
+    }
+
+    #[test]
+    fn narrow_text_column_keeps_one_line() {
+        // 6-cell prefix leaves 18 cells, under MIN_WRAP_TEXT_WIDTH.
+        assert_eq!(
+            wrapped("aaaa bbbb cccc dddd eeee", 24, 0),
+            vec!["      aaaa bbbb cccc dd…"],
+        );
+    }
+
+    #[test]
+    fn continuation_lines_keep_cursor_highlight() {
+        let task = parse_line("one two three four five six").unwrap();
+        let opts = RowOpts {
+            cursor: true,
+            today: "2026-05-06",
+            ..RowOpts::default()
+        };
+        let lines = build_lines(
+            &task,
+            opts,
+            &MUTED,
+            RowWrap {
+                width: 26,
+                max_lines: 0,
+            },
+        );
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().all(|l| l.style.bg == Some(MUTED.cursor)));
     }
 }

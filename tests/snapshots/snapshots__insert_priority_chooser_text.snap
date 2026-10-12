@@ -1,36 +1,37 @@
 ---
 source: tests/snapshots.rs
+assertion_line: 226
 expression: buffer_to_text(&buf)
 ---
  FILTERS                   ▶▮◀ /tmp/tuxedo-snapshot.txt  •  15 tas DETAIL                           
                                                                                                     
  PROJECTS                  (2)  PRIORITY A  ────────────────────── priority  (A)                    
-   +work             4      1 ▸ (A) Finish Q2 board deck +work @la created   2026-05-01             
-   +health           3      2   (A) Call dentist to reschedule cle due       2026-05-06  today      
-   +finance          2     (3)  PRIORITY B  ────────────────────── projects  +work                  
-   +home             1      3   (B) Review pull requests for auth  contexts  @laptop                
-   +learning         1      4   (B) Renew passport before summer t                                  
-   +personal         1      5   (B) Draft hiring rubric for senior RAW                              
-   +travel           1     (2)  PRIORITY C  ──────────────────────                                  
-                            6   (C) Pay quarterly estimated taxes  (A) 2026-05-01 Finish Q2 board   
- CONTEXTS                   7   (C) Order new running shoes +healt deck +work @laptop               
-   @errands          4     (8)┌ ADD TASK ────────────────────────────┐:2026-05-06                   
-   @home             4      8 │                                      │                              
-   @laptop           4      9 │  › Buy milk +groceries█              │                              
-   @phone            3     10 │  ok · 1 +project                     │                              
-                           11 │                                      │                              
-                           12 │  format: (A) Buy milk +shop @home due│                              
-                           13 │                                      │                              
-                           14 └──────────────────────────────────────┘                              
-                           15     ┌ PRIORITY ────────────┐t washer                                  
-                                  │  (A)                 │                                          
-                                  │  (B)                 │                                          
+   +work             4      1 ▸ (A) Finish Q2 board deck +work     created   2026-05-01             
+   +health           3              @laptop due:2026-05-06         due       2026-05-06  today      
+   +finance          2      2   (A) Call dentist to reschedule     projects  +work                  
+   +home             1              cleaning @phone +health due:2… contexts  @laptop                
+   +learning         1     (3)  PRIORITY B  ──────────────────────                                  
+   +personal         1      3   (B) Review pull requests for auth  RAW                              
+   +travel           1              refactor +work @laptop due:20…                                  
+                            4   (B) Renew passport before summer   (A) 2026-05-01 Finish Q2 board   
+ CONTEXTS                           trip +travel @errands due:202… deck +work @laptop               
+   @errands          4      5 ┌ ADD TASK ────────────────────────────┐:2026-05-06                   
+   @home             4        │                                      │                              
+   @laptop           4     (2)│  › Buy milk +groceries█              │                              
+   @phone            3      6 │  ok · 1 +project                     │                              
+                              │                                      │                              
+                            7 │  format: (A) Buy milk +shop @home due│                              
+                              │                                      │                              
+                           (8)└──────────────────────────────────────┘                              
+                            8     ┌ PRIORITY ────────────┐ew                                        
+                                  │  (A)                 │ due:20…                                  
+                            9     │  (B)                 │5                                         
                                   │  (C)                 │                                          
-                                  │  clear               │                                          
-                                  │                      │                                          
+                           10     │  clear               │errands                                   
+                           11     │                      │al                                        
                                   │  jk move · Enter set │                                          
-                                  └──────────────────────┘                                          
-                                                                                                    
-                                                                                                    
-                                                                                                    
+                           12     └──────────────────────┘ntensive                                  
+                                    Applications" ch. 4 +learning…                                  
+                           13       Send thank-you note to mentor                                   
+                                    @home                                                           
  INSERT   Enter save · Esc normal                            15 open · 2026-05-06 · tuxedo 2026.8.1

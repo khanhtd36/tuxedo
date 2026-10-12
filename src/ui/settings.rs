@@ -58,6 +58,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             "  line numbers",
             Some(format!("{}  (L to toggle)", on(app.prefs.layout.line_num))),
         ),
+        (
+            "  row wrap",
+            Some(format!(
+                "{}, {}  (w to toggle)",
+                on(app.prefs.layout.wrap_rows),
+                wrap_limit_label(app.prefs.wrap_max_lines)
+            )),
+        ),
         ("  status bar", Some(on(app.prefs.layout.status_bar).into())),
         (
             "  filter sidebar",
@@ -120,4 +128,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 
     let para = Paragraph::new(lines).style(Style::default().bg(theme.bg).fg(theme.fg));
     frame.render_widget(para, body_area);
+}
+
+fn wrap_limit_label(max_lines: usize) -> String {
+    match max_lines {
+        0 => "no line limit".to_string(),
+        1 => "1 line max".to_string(),
+        n => format!("{n} lines max"),
+    }
 }

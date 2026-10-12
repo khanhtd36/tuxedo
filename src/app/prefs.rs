@@ -11,6 +11,7 @@ pub struct Layout {
     pub right: bool,
     pub line_num: bool,
     pub status_bar: bool,
+    pub wrap_rows: bool,
 }
 
 impl Default for Layout {
@@ -20,9 +21,13 @@ impl Default for Layout {
             right: true,
             line_num: true,
             status_bar: true,
+            wrap_rows: true,
         }
     }
 }
+
+/// Default for `Prefs::wrap_max_lines`.
+pub const DEFAULT_WRAP_MAX_LINES: usize = 2;
 
 /// User-tunable preferences persisted to `Config`. Cycle/toggle methods return
 /// the flash message for the caller to display, sidestepping any `&mut prefs`
@@ -43,6 +48,10 @@ pub struct Prefs {
     /// for `rec:` / `/rec`. Config-only (no in-app toggle); see
     /// `Config::recurrence_builder`.
     pub recurrence_builder: bool,
+    /// Most display lines one task row may take while `layout.wrap_rows` is
+    /// on; `0` means no limit. Config-only (no in-app toggle); see
+    /// `Config::wrap_max_lines`.
+    pub wrap_max_lines: usize,
 }
 
 impl Prefs {
@@ -61,12 +70,24 @@ impl Prefs {
                 right: cfg.show_right.unwrap_or(true),
                 line_num: cfg.show_line_num.unwrap_or(true),
                 status_bar: cfg.show_status_bar.unwrap_or(true),
+                wrap_rows: cfg.wrap_rows.unwrap_or(true),
             },
             show_done: cfg.show_done.unwrap_or(false),
             show_future: cfg.show_future.unwrap_or(false),
             hidden_keys: cfg.hidden_keys,
             week_start: cfg.week_start.unwrap_or(WeekStart::Sunday),
             recurrence_builder: cfg.recurrence_builder.unwrap_or(true),
+            wrap_max_lines: cfg.wrap_max_lines.unwrap_or(DEFAULT_WRAP_MAX_LINES),
+        }
+    }
+
+    /// Display-line budget for one task row: the configured limit while
+    /// wrapping, a single line otherwise.
+    pub fn row_max_lines(&self) -> usize {
+        if self.layout.wrap_rows {
+            self.wrap_max_lines
+        } else {
+            1
         }
     }
 
@@ -125,6 +146,10 @@ impl Prefs {
         self.layout.line_num = !self.layout.line_num;
     }
 
+    pub fn toggle_wrap_rows(&mut self) {
+        self.layout.wrap_rows = !self.layout.wrap_rows;
+    }
+
     pub fn toggle_show_done(&mut self) {
         self.show_done = !self.show_done;
     }
@@ -160,6 +185,7 @@ impl Prefs {
         cfg.show_status_bar = Some(self.layout.status_bar);
         cfg.show_done = Some(self.show_done);
         cfg.show_future = Some(self.show_future);
+        cfg.wrap_rows = Some(self.layout.wrap_rows);
         cfg.hidden_keys = self.hidden_keys.clone();
         cfg.save()
     }
