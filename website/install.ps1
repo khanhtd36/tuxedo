@@ -76,7 +76,18 @@ try {
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Copy-Item -LiteralPath (Join-Path $extractDir $Bin) -Destination (Join-Path $InstallDir $Bin) -Force
+    $target = Join-Path $InstallDir $Bin
+    if (Test-Path -LiteralPath $target) {
+        # A running tuxedo can't be overwritten, but it can be renamed: move it
+        # aside (tuxedo removes tuxedo.exe.old when it next starts).
+        $old = "$target.old"
+        Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $old) {
+            $old = "$target.old-" + (Get-Date -Format "yyyyMMddHHmmss") # still in use by an older update
+        }
+        Move-Item -LiteralPath $target -Destination $old
+    }
+    Copy-Item -LiteralPath (Join-Path $extractDir $Bin) -Destination $target -Force
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
