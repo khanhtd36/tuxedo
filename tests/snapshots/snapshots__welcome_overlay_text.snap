@@ -2,13 +2,13 @@
 source: tests/snapshots.rs
 expression: buffer_to_text(&buf)
 ---
- FILTERS                   ▶▮◀ /tmp/tuxedo-snapshot.txt  •  0 task DETAIL                           
+ ▶▮◀ /tmp/tuxedo-snapshot.txt  •  0 tasks  •  sort:priority                                         
                                                                                                     
- PROJECTS                                                          (no task)                        
-   tag with +project                                                                                
                                                                                                     
- CONTEXTS                                                                                           
-   tag with @context                                                                                
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
                                                                                                     
                       ┌ tuxedo · welcome ────────────────────────────────────┐                      
                       │                    ██          ██                    │                      

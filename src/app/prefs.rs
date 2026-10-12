@@ -17,8 +17,8 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            left: true,
-            right: true,
+            left: false,
+            right: false,
             line_num: true,
             status_bar: true,
             wrap_rows: true,
@@ -66,8 +66,8 @@ impl Prefs {
             density: cfg.density.unwrap_or(Density::Comfortable),
             sort: cfg.sort.unwrap_or(Sort::Priority),
             layout: Layout {
-                left: cfg.show_left.unwrap_or(true),
-                right: cfg.show_right.unwrap_or(true),
+                left: cfg.show_left.unwrap_or(false),
+                right: cfg.show_right.unwrap_or(false),
                 line_num: cfg.show_line_num.unwrap_or(true),
                 status_bar: cfg.show_status_bar.unwrap_or(true),
                 wrap_rows: cfg.wrap_rows.unwrap_or(true),

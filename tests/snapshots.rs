@@ -60,6 +60,10 @@ fn make_app() -> App {
     // Compact density keeps each scene dense and stable: blank-line counts
     // shift with density, which would churn snapshots without adding signal.
     app.prefs.density = Density::Compact;
+    // Panes default off; most scenes cover the sidebar and detail pane, so
+    // turn them on here and let a scene opt out.
+    app.prefs.layout.left = true;
+    app.prefs.layout.right = true;
     app
 }
 
@@ -282,6 +286,8 @@ fn list_sidebar_empty_hints() {
     );
     app.config_path = Some(PathBuf::from(FIXTURE_CONFIG_PATH));
     app.prefs.density = Density::Compact;
+    app.prefs.layout.left = true;
+    app.prefs.layout.right = true;
     snapshot_app("list_sidebar_empty_hints", &app);
 }
 
