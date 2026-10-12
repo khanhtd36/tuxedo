@@ -51,26 +51,30 @@ pub fn run() -> io::Result<()> {
         InstallKind::Homebrew => {
             println!("Looks like a Homebrew install. Update with:");
             println!();
-            println!("    brew update && brew upgrade webstonehq/tap/tuxedo");
+            println!("    brew update && brew upgrade {BREW_FORMULA}");
         }
         InstallKind::Cargo => {
             println!("Looks like a `cargo install` build. Update with:");
             println!();
-            println!("    cargo install --git https://github.com/webstonehq/tuxedo --force");
+            println!("    cargo install --git {REPO_URL} --force");
         }
         InstallKind::Binary => {
-            println!("Looks like a downloaded binary. Grab the latest from:");
+            println!("Looks like a downloaded binary. Update with one of:");
             println!();
-            println!("    https://github.com/webstonehq/tuxedo/releases/latest");
+            println!("    winget upgrade {WINGET_ID}");
+            println!("    irm {INSTALL_SITE}/install.ps1 | iex");
+            println!("    curl -fsSL {INSTALL_SITE}/install.sh | sh");
             println!();
-            println!("...and replace the file above.");
+            println!("...or grab the latest from {REPO_URL}/releases/latest");
+            println!("and replace the file above.");
         }
         InstallKind::Unknown => {
             println!("Could not detect the install method. Options:");
             println!();
-            println!("    brew upgrade webstonehq/tap/tuxedo");
-            println!("    cargo install --git https://github.com/webstonehq/tuxedo --force");
-            println!("    https://github.com/webstonehq/tuxedo/releases/latest");
+            println!("    brew upgrade {BREW_FORMULA}");
+            println!("    winget upgrade {WINGET_ID}");
+            println!("    cargo install --git {REPO_URL} --force");
+            println!("    {REPO_URL}/releases/latest");
         }
     }
     Ok(())
@@ -118,7 +122,21 @@ const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// (which is what burned us once during testing).
 const NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 const CURL_TIMEOUT_SECS: u64 = 5;
-const RELEASE_URL: &str = "https://api.github.com/repos/webstonehq/tuxedo/releases/latest";
+const RELEASE_URL: &str = "https://api.github.com/repos/khanhtd36/tuxedo/releases/latest";
+
+// This is khanhtd36's fork: updates come from its releases, never upstream's,
+// so following an upgrade hint can't replace the fork with upstream tuxedo.
+const REPO_URL: &str = "https://github.com/khanhtd36/tuxedo";
+const BREW_FORMULA: &str = "khanhtd36/tap/tuxedo-khanhtd36";
+const WINGET_ID: &str = "khanhtd36.tuxedo-khanhtd36";
+const INSTALL_SITE: &str = "https://tuxedo.khanhtd36.dev";
+
+/// Fork release tags carry a `fork-` prefix (`fork-v2026.8.1-khanhtd36.1`)
+/// so they never collide with upstream's `v*` tags. Drop it so the tag reads
+/// like an ordinary version in the status-bar hint and in [`is_newer`].
+fn strip_fork_prefix(tag: &str) -> &str {
+    tag.strip_prefix("fork-").unwrap_or(tag)
+}
 
 fn check_for_update() -> Option<String> {
     let cache_path = cache_path();
@@ -140,7 +158,9 @@ fn check_for_update() -> Option<String> {
     // Cache is stale, missing, or expired-negative — try the network. Cache
     // either outcome so we don't retry on every launch when offline or
     // rate-limited.
-    let tag = fetch_latest_body().and_then(|b| parse_tag_from_release_json(&b));
+    let tag = fetch_latest_body()
+        .and_then(|b| parse_tag_from_release_json(&b))
+        .map(|t| strip_fork_prefix(&t).to_string());
     if let Some(p) = &cache_path {
         let _ = write_cache(p, now, tag.as_deref().unwrap_or(""));
     }
@@ -188,15 +208,15 @@ pub fn parse_tag_from_release_json(body: &str) -> Option<String> {
 }
 
 /// True when `latest` is a strictly newer version than `current`, comparing
-/// each dot-separated segment numerically. A leading `v` (e.g. `v2026.5.5`)
-/// is stripped on both sides. Non-numeric segments fall back to lexicographic
-/// comparison of that segment, so a future suffix like `2026.5.5-rc1` won't
-/// crash — it just compares the strings.
+/// each `.`- or `-`-separated segment numerically. A leading `fork-v` or `v`
+/// (e.g. `v2026.5.5`) is stripped on both sides. Non-numeric segments fall
+/// back to lexicographic comparison of that segment, so the fork suffix in
+/// `2026.8.1-khanhtd36.2` compares its build number as a number.
 pub fn is_newer(latest: &str, current: &str) -> bool {
-    let l = latest.trim_start_matches('v');
-    let c = current.trim_start_matches('v');
-    let mut li = l.split('.');
-    let mut ci = c.split('.');
+    let l = strip_fork_prefix(latest).trim_start_matches('v');
+    let c = strip_fork_prefix(current).trim_start_matches('v');
+    let mut li = l.split(['.', '-']);
+    let mut ci = c.split(['.', '-']);
     loop {
         match (li.next(), ci.next()) {
             (None, None) => return false,
@@ -357,6 +377,17 @@ mod tests {
         assert!(is_newer("v2026.5.4", "2026.5.3"));
         assert!(is_newer("2026.5.4", "v2026.5.3"));
         assert!(!is_newer("v2026.5.3", "v2026.5.3"));
+    }
+
+    #[test]
+    fn is_newer_compares_fork_versions() {
+        let current = "2026.8.1-khanhtd36.2";
+        assert!(!is_newer("fork-v2026.8.1-khanhtd36.2", current));
+        assert!(!is_newer("fork-v2026.8.1-khanhtd36.1", current));
+        assert!(is_newer("fork-v2026.8.1-khanhtd36.10", current));
+        assert!(is_newer("v2026.9.1-khanhtd36.1", current));
+        // A stale cached upstream tag for the same base version isn't newer.
+        assert!(!is_newer("v2026.8.1", current));
     }
 
     #[test]

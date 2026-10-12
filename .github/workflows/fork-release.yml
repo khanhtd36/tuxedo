@@ -1,0 +1,259 @@
+name: Fork release
+
+# Releases khanhtd36/tuxedo (this fork). Triggered by `fork-v*` tags only, so
+# upstream's `v*` tags can never fire it; upstream's own release.yml is left
+# untouched for clean syncs. Cut a release with the fork-release skill.
+on:
+  push:
+    tags:
+      - "fork-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          cargo_version=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          tag_version="${GITHUB_REF_NAME#fork-v}"
+          if [ "$cargo_version" != "$tag_version" ]; then
+            echo "error: tag $GITHUB_REF_NAME doesn't match Cargo.toml version $cargo_version"
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: verify-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+            linker: aarch64-linux-gnu-gcc
+            apt_packages: gcc-aarch64-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install mise
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          install: true
+          cache: true
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain
+        if: matrix.apt_packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt_packages }}
+
+      - name: Configure cross linker
+        if: matrix.linker
+        run: |
+          target_upper=$(echo "${{ matrix.target }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "CARGO_TARGET_${target_upper}_LINKER=${{ matrix.linker }}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          stage="tuxedo-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/${stage}"
+          cp "target/${{ matrix.target }}/release/tuxedo" "dist/${stage}/"
+          cp README.md LICENSE "dist/${stage}/"
+          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          (cd dist && shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256")
+
+      - name: Package (windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $stage = "tuxedo-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$stage" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/tuxedo.exe", README.md, LICENSE "dist/$stage/"
+          # Flat zip (tuxedo.exe at the root) so winget's portable install
+          # and install.ps1 find the binary without a nested folder.
+          Compress-Archive -Path "dist/$stage/*" -DestinationPath "dist/$stage.zip"
+          $hash = (Get-FileHash "dist/$stage.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $stage.zip" | Out-File -Encoding ascii "dist/$stage.zip.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tuxedo-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ github.ref_name }}
+      version: ${{ steps.version.outputs.version }}
+      windows_asset_url: ${{ steps.version.outputs.windows_asset_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute version
+        id: version
+        run: |
+          echo "version=${GITHUB_REF_NAME#fork-v}" >> "$GITHUB_OUTPUT"
+          echo "windows_asset_url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/tuxedo-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          make_latest: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+
+  winget:
+    needs: release
+    runs-on: windows-latest
+    # Until khanhtd36.tuxedo-khanhtd36 exists in winget-pkgs (bootstrapped
+    # once by hand), `update` has nothing to update and fails; that must not
+    # fail the release itself.
+    continue-on-error: true
+    steps:
+      - name: Install wingetcreate
+        run: |
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+
+      - name: Submit winget manifest update
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          .\wingetcreate.exe update khanhtd36.tuxedo-khanhtd36 `
+            --version "${{ needs.release.outputs.version }}" `
+            --urls "${{ needs.release.outputs.windows_asset_url }}" `
+            --submit `
+            --token "$env:WINGET_TOKEN"
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      # Write access to the tap comes from a deploy key scoped to that one
+      # repository, not a personal access token.
+      - name: Checkout tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: khanhtd36/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+
+      - name: Render formula
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/khanhtd36/tuxedo/releases/download/${TAG}"
+          fetch_sha() {
+            curl -fsSL "${base}/tuxedo-${TAG}-$1.tar.gz.sha256" | awk '{print $1}'
+          }
+          sha_darwin_arm=$(fetch_sha aarch64-apple-darwin)
+          sha_darwin_intel=$(fetch_sha x86_64-apple-darwin)
+          sha_linux_arm=$(fetch_sha aarch64-unknown-linux-gnu)
+          sha_linux_intel=$(fetch_sha x86_64-unknown-linux-gnu)
+
+          cat > tap/Formula/tuxedo-khanhtd36.rb <<EOF
+          class TuxedoKhanhtd36 < Formula
+            desc "Fast, keyboard-driven terminal UI for todo.txt (khanhtd36's fork)"
+            homepage "https://github.com/khanhtd36/tuxedo"
+            version "${VERSION}"
+            license "MIT"
+            conflicts_with "tuxedo", because: "both install a tuxedo binary"
+
+            on_macos do
+              on_arm do
+                url "${base}/tuxedo-${TAG}-aarch64-apple-darwin.tar.gz"
+                sha256 "${sha_darwin_arm}"
+              end
+              on_intel do
+                url "${base}/tuxedo-${TAG}-x86_64-apple-darwin.tar.gz"
+                sha256 "${sha_darwin_intel}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${base}/tuxedo-${TAG}-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${sha_linux_arm}"
+              end
+              on_intel do
+                url "${base}/tuxedo-${TAG}-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${sha_linux_intel}"
+              end
+            end
+
+            def install
+              bin.install "tuxedo"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tuxedo --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name  "khanhtd36-bot"
+          git config user.email "khanhtd36@users.noreply.github.com"
+          git add Formula/tuxedo-khanhtd36.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date; nothing to commit."
+            exit 0
+          fi
+          git commit -m "Update tuxedo-khanhtd36 to ${VERSION}"
+          git push
