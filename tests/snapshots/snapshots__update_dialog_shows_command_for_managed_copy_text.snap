@@ -14,7 +14,7 @@ expression: buffer_to_text(&buf)
  (2)  PRIORITY C  ─────────────────────────────────────────────────────────────────────             
   6   (C) Pay quarterly estimated taxes @home +finance due:2026-06-15                               
   7   (C) Order┌ tuxedo · update ──────────────────────────────────────────────────┐                
- (8)  NO PRIORI│  tuxedo 2026.8.1-khanhtd36.2 → 9999.1.1                           │───             
+ (8)  NO PRIORI│  tuxedo 2026.8.1-khanhtd36.3 → 9999.1.1                           │───             
   8       Migra│  https://github.com/khanhtd36/tuxedo/releases/tag/fork-v9999.1.1  │                
   9       Pay r│                                                                   │                
  10       Pick │  This copy doesn't update itself. Instead:                        │                
@@ -33,4 +33,4 @@ expression: buffer_to_text(&buf)
                                                                                                     
                                                                                                     
                                                                                                     
- UPDATE   Esc close             15 open · 2026-05-06 · tuxedo 2026.8.1-khanhtd36.2 · ↑ 9999.1.1 (U)
+ UPDATE   Esc close             15 open · 2026-05-06 · tuxedo 2026.8.1-khanhtd36.3 · ↑ 9999.1.1 (U)
