@@ -47,3 +47,15 @@ _Avoid_: in-place update
 
 **Fork Homebrew formula**:
 `khanhtd36/tap/tuxedo-khanhtd36` in `khanhtd36/homebrew-tap`, rewritten by each fork release. Conflicts with upstream's `tuxedo` formula.
+
+**Cursor**:
+The highlighted task row in the list or archive view (`app.cursor`). Moving to a row (keyboard or click) and activating it (`e`/`i`/`x`, or double-click) are separate actions.
+_Avoid_: selection (reserve for multi-select), focus (the codebase has no single unified focus concept — see Chooser)
+
+**Chooser**:
+A menu-like overlay where moving to an entry and activating it are the same action: the command palette, the project/context/saved-filter pickers, and the theme picker. Click behavior on a chooser entry is select-and-activate, unlike a Cursor row.
+_Avoid_: picker (too narrow — excludes the command palette and theme picker), menu
+
+**Multi-select**:
+The set of tasks marked in Visual mode (`app.selection`, toggled with Space), distinct from the Cursor (which row is highlighted) and from a Chooser's single active entry.
+_Avoid_: selection (alone — ambiguous with text selection and Cursor)

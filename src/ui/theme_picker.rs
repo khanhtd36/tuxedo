@@ -7,6 +7,26 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::app::App;
 use crate::theme;
 
+/// Theme index the given absolute terminal row lands on within the picker's
+/// bordered box at `outer`, or `None` outside the list area. Mirrors
+/// `render`'s layout split (see docs/adr/0002). The theme list is unwindowed
+/// (every theme always shows), unlike the command palette.
+pub fn hit_test(outer: Rect, row: u16) -> Option<usize> {
+    let inner = Rect {
+        x: outer.x + 1,
+        y: outer.y + 1,
+        width: outer.width.saturating_sub(2),
+        height: outer.height.saturating_sub(2),
+    };
+    let [list_area, _footer] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(inner);
+    if row < list_area.y || row >= list_area.y + list_area.height {
+        return None;
+    }
+    let idx = usize::from(row - list_area.y);
+    (idx < theme::all().len()).then_some(idx)
+}
+
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let theme = app.theme();
     let all = theme::all();

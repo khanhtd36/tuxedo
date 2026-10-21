@@ -9,6 +9,42 @@ use crate::app::palette::{self, ENTRIES};
 use crate::theme::Theme;
 use crate::ui::dialog::draft_cursor_spans;
 
+/// Index into `app.command_palette.hits()` that the given absolute terminal
+/// row lands on within the palette's bordered box at `outer`, or `None` for a
+/// row outside the (windowed) list area. Mirrors `render`'s own layout split
+/// so a click can't disagree with what's on screen (see docs/adr/0002).
+pub fn hit_test(app: &App, outer: Rect, row: u16) -> Option<usize> {
+    let inner = Rect {
+        x: outer.x + 1,
+        y: outer.y + 1,
+        width: outer.width.saturating_sub(2),
+        height: outer.height.saturating_sub(2),
+    };
+    let [_input, _divider, list_area, _footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    if row < list_area.y || row >= list_area.y + list_area.height {
+        return None;
+    }
+    let hits = app.command_palette.hits();
+    if hits.is_empty() {
+        return None;
+    }
+    let list_h = usize::from(list_area.height);
+    let cursor = app.command_palette.cursor.min(hits.len() - 1);
+    let start = if cursor < list_h {
+        0
+    } else {
+        cursor + 1 - list_h
+    };
+    let idx = start + usize::from(row - list_area.y);
+    (idx < hits.len()).then_some(idx)
+}
+
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let theme = app.theme();
     let block = Block::default()

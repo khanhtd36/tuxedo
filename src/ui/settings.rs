@@ -83,6 +83,10 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             "  show future in list",
             Some(format!("{}  (F to toggle)", on(app.prefs.show_future))),
         ),
+        (
+            "  mouse",
+            Some(format!("{}  (M to toggle)", on(app.prefs.mouse))),
+        ),
         ("", Some("".into())),
         ("BEHAVIOR", None),
         (

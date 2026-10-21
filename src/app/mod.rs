@@ -510,6 +510,24 @@ impl App {
         self.view
     }
 
+    /// Current vertical scroll offset for `view`, in display-line rows from
+    /// the top. Read by the mouse click handler to turn a clicked screen row
+    /// into an absolute line index (see `ui::list`/`ui::archive::hit_test`).
+    pub fn view_scroll(&self, view: View) -> u16 {
+        self.view_scroll[view.idx()].get()
+    }
+
+    /// Scroll `view`'s viewport by `delta` display lines (negative = up),
+    /// clamped to `[0, max]`. Used by the mouse wheel, which scrolls the
+    /// viewport independently of the cursor (see docs/adr elsewhere: Q6 in
+    /// the mouse-support design conversation — wheel never moves selection).
+    pub fn scroll_view_by(&self, view: View, delta: i32, max: u16) {
+        let cell = &self.view_scroll[view.idx()];
+        let cur = i32::from(cell.get());
+        let next = (cur + delta).clamp(0, i32::from(max));
+        cell.set(next as u16);
+    }
+
     /// Switch top-level view. Recomputes the cache so the next frame reflects
     /// the change, snapshots the outgoing view's cursor, and restores the
     /// incoming view's saved cursor (clamped to the new visible length).

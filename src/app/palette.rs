@@ -218,6 +218,11 @@ pub const ENTRIES: &[PaletteEntry] = &[
         action: Action::ToggleLineNum,
     },
     PaletteEntry {
+        label: "toggle mouse support",
+        keys: "M (settings)",
+        action: Action::ToggleMouse,
+    },
+    PaletteEntry {
         label: "toggle row wrap",
         keys: "w",
         action: Action::ToggleWrapRows,

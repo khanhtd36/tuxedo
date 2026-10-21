@@ -6,7 +6,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
+use ratatui::layout::Rect;
 
 use std::io::Write;
 
@@ -115,7 +119,13 @@ fn main() -> Result<()> {
     let home = tuxedo::xdg::home_dir();
     let title = ui::title::terminal_title(&path, home.as_deref(), ui::title::DEFAULT_BUDGET);
     let _ = crossterm::execute!(io::stdout(), crossterm::terminal::SetTitle(title));
+    if app_state.prefs.mouse {
+        let _ = crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture);
+    }
     let result = run(terminal, &mut app_state, &keybinds, config_rx);
+    if app_state.prefs.mouse {
+        let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableMouseCapture);
+    }
     ratatui::restore();
     // Clear the title on exit so the shell retitles on its next prompt rather
     // than leaving `tuxedo …` behind.
@@ -183,7 +193,27 @@ fn run(
     config_rx: Option<mpsc::Receiver<()>>,
 ) -> Result<()> {
     let mut dirty = true;
+    // Last frame's OSC 8 URL runs, kept for mouse-click hit-testing against
+    // hyperlinks (see `handle_mouse`). Terminal-native ctrl/cmd-click on an
+    // OSC 8 link may not survive `EnableMouseCapture` in every terminal, so
+    // we detect and open the link ourselves too — see docs/adr/0001.
+    let mut last_runs: Vec<hyperlinks::UrlRun> = Vec::new();
+    // Position + time of the last left-click, for double-click detection.
+    // Lives here rather than on `App`: it's an input-timing artifact, not
+    // state the UI renders or persists.
+    let mut last_click: Option<(u16, u16, Instant)> = None;
+    // Tracks whether mouse capture is currently on, so a mid-session toggle
+    // (settings `M` / command palette) is applied exactly once.
+    let mut mouse_capture_on = app.prefs.mouse;
     while !app.should_quit {
+        if app.prefs.mouse != mouse_capture_on {
+            mouse_capture_on = app.prefs.mouse;
+            let _ = if mouse_capture_on {
+                crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture)
+            } else {
+                crossterm::execute!(io::stdout(), crossterm::event::DisableMouseCapture)
+            };
+        }
         // Pick up midnight rollover so threshold-hidden tasks reveal
         // themselves without requiring an app restart.
         if app.refresh_today(chrono::Local::now().format("%Y-%m-%d").to_string()) {
@@ -218,13 +248,13 @@ fn run(
             // keeps cell symbols byte-identical to a plain render, so
             // ratatui's diff width calculation doesn't skip cells past the
             // URL — see `ui::hyperlinks` for the full explanation.
-            let runs = {
+            last_runs = {
                 let frame = terminal.draw(|f| ui::draw(f, app))?;
                 hyperlinks::collect(frame.buffer)
             };
-            if !runs.is_empty() {
+            if !last_runs.is_empty() {
                 let backend = terminal.backend_mut();
-                hyperlinks::emit_overlay(backend, &runs)?;
+                hyperlinks::emit_overlay(backend, &last_runs)?;
                 backend.flush()?;
             }
             dirty = false;
@@ -235,7 +265,7 @@ fn run(
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     handle_key(app, key, keybinds);
                     if let Some(path) = app.take_pending_editor_path() {
-                        open_path_in_editor(&path)?;
+                        open_path_in_editor(&path, app.prefs.mouse)?;
                         terminal.clear()?;
                     }
                     dirty = true;
@@ -243,6 +273,12 @@ fn run(
                 // A terminal resize must trigger an immediate redraw;
                 // otherwise the screen stays stale until the next keystroke.
                 Event::Resize(_, _) => {
+                    dirty = true;
+                }
+                Event::Mouse(mouse) if app.prefs.mouse => {
+                    let size = terminal.size()?;
+                    let area = Rect::new(0, 0, size.width, size.height);
+                    handle_mouse(app, mouse, area, &mut last_click, &last_runs);
                     dirty = true;
                 }
                 _ => {}
@@ -300,7 +336,7 @@ fn poll_config_reload(app: &mut App, rx: &Option<mpsc::Receiver<()>>) -> bool {
     }
 }
 
-fn open_path_in_editor(path: &std::path::Path) -> Result<()> {
+fn open_path_in_editor(path: &std::path::Path, mouse: bool) -> Result<()> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "nvim".to_string());
@@ -314,9 +350,175 @@ fn open_path_in_editor(path: &std::path::Path) -> Result<()> {
         io::stdout(),
         ratatui::crossterm::terminal::EnterAlternateScreen
     )?;
+    // `ratatui::restore()` above dropped mouse capture along with the rest of
+    // the terminal state (raw mode, alt screen) — put it back the same way
+    // those are, so clicks keep working once the editor returns control.
+    if mouse {
+        let _ = crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture);
+    }
     match status {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
+    }
+}
+
+/// Two clicks on the same cell within this window count as a double-click.
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// Display lines scrolled per wheel notch in the list/archive body.
+const WHEEL_LINES: i32 = 3;
+
+fn contains(r: Rect, col: u16, row: u16) -> bool {
+    col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
+}
+
+/// Open `url` in the platform's default handler. Fire-and-forget: the child
+/// is spawned detached, matching how a terminal's own OSC 8 ctrl/cmd-click
+/// behaves (see docs/adr/0001 — this is the app-side fallback for terminals
+/// where `EnableMouseCapture` swallows that native handling).
+fn open_url(url: &str) -> io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    Ok(())
+}
+
+/// Dispatch a mouse event. Click-to-focus/activate and scroll are handled
+/// here, alongside the OSC 8 hyperlink click fallback — see docs/adr/0001 and
+/// docs/adr/0002 for why this recomputes layout/hit-tests on demand instead
+/// of consulting cached state.
+fn handle_mouse(
+    app: &mut App,
+    mouse: MouseEvent,
+    area: Rect,
+    last_click: &mut Option<(u16, u16, Instant)>,
+    runs: &[hyperlinks::UrlRun],
+) {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            handle_left_click(app, mouse.column, mouse.row, area, last_click, runs);
+        }
+        MouseEventKind::ScrollDown => handle_scroll(app, area, mouse.column, mouse.row, 1),
+        MouseEventKind::ScrollUp => handle_scroll(app, area, mouse.column, mouse.row, -1),
+        _ => {}
+    }
+}
+
+fn handle_left_click(
+    app: &mut App,
+    col: u16,
+    row: u16,
+    area: Rect,
+    last_click: &mut Option<(u16, u16, Instant)>,
+    runs: &[hyperlinks::UrlRun],
+) {
+    // A click landing on an OSC 8 run opens it and nothing else — checked
+    // first so it can't also move the cursor underneath the link.
+    if let Some(run) = runs
+        .iter()
+        .find(|r| r.y == row && col >= r.x && usize::from(col - r.x) < r.text.chars().count())
+    {
+        let _ = open_url(&run.text);
+        return;
+    }
+
+    let now = Instant::now();
+    let is_double = last_click
+        .is_some_and(|(c, r, t)| c == col && r == row && now.duration_since(t) <= DOUBLE_CLICK);
+    *last_click = Some((col, row, now));
+
+    match app.mode {
+        Mode::CommandPalette => {
+            let outer = ui::palette_like_rect(area);
+            if contains(outer, col, row)
+                && let Some(idx) = ui::command_palette::hit_test(app, outer, row)
+            {
+                app.command_palette.cursor = idx;
+                let chosen = app.command_palette.current_action();
+                app.mode = app.command_palette.take_prior();
+                app.draft_clear();
+                if let Some(action) = chosen {
+                    apply_action(app, action);
+                }
+            }
+        }
+        Mode::PickTheme => {
+            let outer = ui::palette_like_rect(area);
+            if contains(outer, col, row)
+                && let Some(idx) = ui::theme_picker::hit_test(outer, row)
+            {
+                app.prefs.set_theme_idx(idx);
+                app.pick_theme_accept();
+            }
+        }
+        Mode::Normal | Mode::Visual => {
+            let panes = ui::panes(app, area);
+            if !contains(panes.center, col, row) {
+                return;
+            }
+            let (_, body) = ui::header_body_split(panes.center);
+            if !contains(body, col, row) {
+                return;
+            }
+            let line = usize::from(row - body.y) + usize::from(app.view_scroll(app.view()));
+            let hit = match app.view() {
+                View::List => ui::list::hit_test(app, body.width, line),
+                View::Archive => ui::archive::hit_test(app, body.width, line),
+            };
+            if let Some(i) = hit {
+                app.cursor = i;
+                app.clamp_cursor();
+                // Single click only moves the cursor — the list/archive is
+                // the workspace, not a menu (unlike the palette/picker arms
+                // above). Double-click activates: edit in List, un/archive
+                // toggle in Archive (mirrors the `x` read-only exception).
+                if is_double {
+                    match app.view() {
+                        View::List => apply_action(app, Action::BeginEdit),
+                        View::Archive => apply_action(app, Action::ToggleComplete),
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_scroll(app: &mut App, area: Rect, col: u16, row: u16, dir: i32) {
+    match app.mode {
+        Mode::CommandPalette => {
+            if contains(ui::palette_like_rect(area), col, row) {
+                app.command_palette.step(dir);
+            }
+        }
+        Mode::PickTheme => {
+            if contains(ui::palette_like_rect(area), col, row) {
+                app.pick_theme_step(dir > 0);
+            }
+        }
+        Mode::Normal | Mode::Visual => {
+            let panes = ui::panes(app, area);
+            if contains(panes.center, col, row) {
+                // Scrolls the viewport only, independent of the cursor — see
+                // Q6 in the mouse-support design discussion. The render-time
+                // clamp (`keep_cursor_row_visible`) re-centers on the cursor
+                // the moment it would scroll out of view, and also clamps
+                // against the real line count every frame, so an
+                // out-of-range offset here self-corrects on the next draw.
+                app.scroll_view_by(app.view(), dir * WHEEL_LINES, u16::MAX);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -864,6 +1066,7 @@ fn handle_settings(app: &mut App, key: KeyEvent) {
         KeyCode::Char('H') => apply_action(app, Action::ToggleShowDone),
         KeyCode::Char('F') => apply_action(app, Action::ToggleShowFuture),
         KeyCode::Char('S') => apply_action(app, Action::CycleSort),
+        KeyCode::Char('M') => apply_action(app, Action::ToggleMouse),
         _ => {}
     }
 }
@@ -1332,6 +1535,15 @@ fn apply_action(app: &mut App, action: Action) {
             app.cursor = 0;
             app.recompute_visible();
             app.save_prefs();
+        }
+        Action::ToggleMouse => {
+            app.prefs.toggle_mouse();
+            app.save_prefs();
+            app.flash(if app.prefs.mouse {
+                "mouse: on"
+            } else {
+                "mouse: off"
+            });
         }
         Action::CopyLine => copy_current_task(app, false),
         Action::CopyBody => copy_current_task(app, true),

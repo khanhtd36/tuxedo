@@ -62,6 +62,12 @@ pub struct Config {
     /// dialog a single plain text field — `rec:` is typed by hand. Defaults
     /// to `true`. Serialized as `recurrence_builder = false`.
     pub recurrence_builder: Option<bool>,
+    /// Whether the terminal reports mouse events at all. Defaults to `true`.
+    /// Off restores pure keyboard input and leaves the terminal's own text
+    /// selection unmodified (no Shift needed) — the escape hatch for
+    /// multiplexers/terminals that handle mouse reporting badly. Toggled
+    /// in-app with `M` (in settings) or from the command palette.
+    pub mouse: Option<bool>,
 }
 
 impl Config {
@@ -185,6 +191,7 @@ fn parse(s: &str) -> Config {
             }
             "week_start" => c.week_start = v.parse().ok(),
             "recurrence_builder" => c.recurrence_builder = parse_bool(v),
+            "mouse" => c.mouse = parse_bool(v),
             // Saved searches: `filter.<name> = <query>`. The name is the
             // (trimmed) text after the `filter.` prefix; the query is the
             // (unquoted) value, which may itself contain `=`. A repeated
@@ -263,6 +270,9 @@ fn serialize(c: &Config) -> String {
     if let Some(v) = c.recurrence_builder {
         let _ = writeln!(out, "recurrence_builder = {v}");
     }
+    if let Some(v) = c.mouse {
+        let _ = writeln!(out, "mouse = {v}");
+    }
     out
 }
 
@@ -311,6 +321,7 @@ mod tests {
             hidden_keys: vec!["uid".into(), "sync".into()],
             week_start: Some(WeekStart::Sunday),
             recurrence_builder: Some(false),
+            mouse: Some(false),
         };
 
         let s = serialize(&c);
@@ -406,6 +417,12 @@ mod tests {
     }
 
     #[test]
+    fn mouse_parsed_and_defaults_to_none() {
+        assert_eq!(parse("mouse = false\n").mouse, Some(false));
+        assert!(parse("theme = Dawn\n").mouse.is_none());
+    }
+
+    #[test]
     fn unknown_keys_ignored() {
         let s = "theme = Dawn\nbogus = 42\nshow_left = false\n";
         let c = parse(s);
@@ -470,6 +487,7 @@ mod tests {
             hidden_keys: vec!["uid".into()],
             week_start: Some(WeekStart::Sunday),
             recurrence_builder: Some(false),
+            mouse: Some(true),
         };
         written.save_to(&path).expect("save should succeed");
         assert!(path.exists());

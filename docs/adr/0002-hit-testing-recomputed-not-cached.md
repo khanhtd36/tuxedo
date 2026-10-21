@@ -1,0 +1,5 @@
+# Click hit-testing recomputes line-to-item mapping, doesn't cache it
+
+Mapping a clicked screen line back to a task/Chooser entry needs the same line-to-item layout that `draw` just built, but rendering currently computes layout fresh every frame as local variables (`src/ui/mod.rs`, `list.rs`, `archive.rs`) and keeps almost no state back — `view_scroll` is the only exception. We extracted the existing line-building logic (`build_lines`, `cursor_lines`) into functions callable both from `draw` and from the mouse click handler, and call it again on click, instead of caching a `Vec<ItemId>`-style map in app state during `draw`.
+
+A cached map is a second source of truth that can silently drift from what's actually on screen (resize, config hot-reload, scroll edge cases) — a function called twice in the same frame can't disagree with itself. The cost is running layout math twice per click, which is negligible for a single discrete input event. This also matches the file's existing style: nothing here is cached except `view_scroll`, which exists only because render needs to *write* scroll position, not read it back.

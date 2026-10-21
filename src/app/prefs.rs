@@ -52,6 +52,8 @@ pub struct Prefs {
     /// on; `0` means no limit. Config-only (no in-app toggle); see
     /// `Config::wrap_max_lines`.
     pub wrap_max_lines: usize,
+    /// Whether the terminal reports mouse events. See `Config::mouse`.
+    pub mouse: bool,
 }
 
 impl Prefs {
@@ -78,6 +80,7 @@ impl Prefs {
             week_start: cfg.week_start.unwrap_or(WeekStart::Sunday),
             recurrence_builder: cfg.recurrence_builder.unwrap_or(true),
             wrap_max_lines: cfg.wrap_max_lines.unwrap_or(DEFAULT_WRAP_MAX_LINES),
+            mouse: cfg.mouse.unwrap_or(true),
         }
     }
 
@@ -158,6 +161,10 @@ impl Prefs {
         self.show_future = !self.show_future;
     }
 
+    pub fn toggle_mouse(&mut self) {
+        self.mouse = !self.mouse;
+    }
+
     pub fn cycle_week_start(&mut self) -> String {
         self.week_start = match self.week_start {
             WeekStart::Sunday => WeekStart::Monday,
@@ -187,6 +194,7 @@ impl Prefs {
         cfg.show_future = Some(self.show_future);
         cfg.wrap_rows = Some(self.layout.wrap_rows);
         cfg.hidden_keys = self.hidden_keys.clone();
+        cfg.mouse = Some(self.mouse);
         cfg.save()
     }
 }

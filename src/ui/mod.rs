@@ -47,13 +47,19 @@ const PALETTE_MAX_H: u16 = 20;
 const PALETTE_MIN_W: u16 = 50;
 const PALETTE_MAX_W: u16 = 80;
 
-pub fn draw(frame: &mut Frame, app: &App) {
-    let theme = app.theme();
-    let area = frame.area();
+/// The frame split into its named regions: left filter sidebar, center
+/// list/archive pane, right detail sidebar, bottom status bar. Each is
+/// `None`/zero-height when hidden. Shared by `draw` and the mouse click
+/// handler in `main.rs`, so a click can never land against a layout that
+/// differs from what was actually drawn (see docs/adr/0002).
+pub struct Panes {
+    pub left: Option<Rect>,
+    pub center: Rect,
+    pub right: Option<Rect>,
+    pub bottom: Rect,
+}
 
-    // Paint full background.
-    frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), area);
-
+pub fn panes(app: &App, area: Rect) -> Panes {
     let bottom = if app.prefs.layout.status_bar { 1 } else { 0 };
     let [body_area, bottom_area] =
         Layout::vertical([Constraint::Min(1), Constraint::Length(bottom)]).areas(area);
@@ -77,29 +83,65 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
     let chunks = Layout::horizontal(constraints).split(body_area);
 
-    let (left_area, center_area, right_area) = match (show_left, show_right) {
+    let (left, center, right) = match (show_left, show_right) {
         (true, true) => (Some(chunks[0]), chunks[1], Some(chunks[2])),
         (true, false) => (Some(chunks[0]), chunks[1], None),
         (false, true) => (None, chunks[0], Some(chunks[1])),
         (false, false) => (None, chunks[0], None),
     };
+    Panes {
+        left,
+        center,
+        right,
+        bottom: bottom_area,
+    }
+}
 
-    if let Some(la) = left_area {
+/// Split a view's area into its header row and body (list/archive content)
+/// area — the 1-row header, a 1-row spacer, then the rest. Shared by
+/// `list::render`/`archive::render` and their mouse hit-testing.
+pub fn header_body_split(area: Rect) -> (Rect, Rect) {
+    let [header, _spacer, body] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+    ])
+    .areas(area);
+    (header, body)
+}
+
+pub fn draw(frame: &mut Frame, app: &App) {
+    let theme = app.theme();
+    let area = frame.area();
+
+    // Paint full background.
+    frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), area);
+
+    let p = panes(app, area);
+    let body_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: area.height - p.bottom.height,
+    };
+    let center_area = p.center;
+
+    if let Some(la) = p.left {
         filters::render(frame, la, app);
     }
     match app.view() {
         View::List => list::render(frame, center_area, app),
         View::Archive => archive::render(frame, center_area, app),
     }
-    if let Some(ra) = right_area {
+    if let Some(ra) = p.right {
         detail::render(frame, ra, app);
     }
 
     if app.prefs.layout.status_bar {
         if app.mode == Mode::Search {
-            status::render_command_line(frame, bottom_area, app);
+            status::render_command_line(frame, p.bottom, app);
         } else {
-            status::render(frame, bottom_area, app);
+            status::render(frame, p.bottom, app);
         }
     }
 
@@ -146,11 +188,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             }
         }
         Mode::CommandPalette => {
-            let h: u16 = area.height.saturating_sub(4).min(PALETTE_MAX_H);
-            let w: u16 = (u32::from(area.width) * 3 / 5)
-                .clamp(u32::from(PALETTE_MIN_W), u32::from(PALETTE_MAX_W))
-                as u16;
-            let r = centered_in(area, w, h);
+            let r = palette_like_rect(area);
             frame.render_widget(Clear, r);
             command_palette::render(frame, r, app);
         }
@@ -167,11 +205,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             update::render(frame, r, app);
         }
         Mode::PickTheme => {
-            let h: u16 = area.height.saturating_sub(4).min(PALETTE_MAX_H);
-            let w: u16 = (u32::from(area.width) * 3 / 5)
-                .clamp(u32::from(PALETTE_MIN_W), u32::from(PALETTE_MAX_W))
-                as u16;
-            let r = centered_in(area, w, h);
+            let r = palette_like_rect(area);
             frame.render_widget(Clear, r);
             theme_picker::render(frame, r, app);
         }
@@ -185,6 +219,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // OSC 8 hyperlinks are applied post-draw by the caller (see
     // `hyperlinks::collect` + `emit_overlay`). Doing it inside the buffer
     // breaks ratatui's diff width calculation — keep cell symbols pristine.
+}
+
+/// The command palette and theme picker overlays share one size formula.
+/// Shared by `draw` and the mouse click handler (see docs/adr/0002).
+pub fn palette_like_rect(area: Rect) -> Rect {
+    let h: u16 = area.height.saturating_sub(4).min(PALETTE_MAX_H);
+    let w: u16 = (u32::from(area.width) * 3 / 5)
+        .clamp(u32::from(PALETTE_MIN_W), u32::from(PALETTE_MAX_W)) as u16;
+    centered_in(area, w, h)
 }
 
 pub(crate) fn centered_in(parent: Rect, w: u16, h: u16) -> Rect {
