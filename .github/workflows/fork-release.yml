@@ -122,7 +122,6 @@ jobs:
     outputs:
       tag: ${{ github.ref_name }}
       version: ${{ steps.version.outputs.version }}
-      windows_asset_url: ${{ steps.version.outputs.windows_asset_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -136,7 +135,6 @@ jobs:
         id: version
         run: |
           echo "version=${GITHUB_REF_NAME#fork-v}" >> "$GITHUB_OUTPUT"
-          echo "windows_asset_url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/tuxedo-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -151,27 +149,20 @@ jobs:
             dist/*.zip
             dist/*.sha256
 
+  # khanhtd36.tuxedo-khanhtd36 was bootstrapped once by hand (first version
+  # can't go in through `update` — see scripts/winget-manifests.sh), via
+  # https://github.com/microsoft/winget-pkgs/pull/458001. Every version
+  # after that one goes in through here.
   winget:
     needs: release
     runs-on: windows-latest
-    # Until khanhtd36.tuxedo-khanhtd36 exists in winget-pkgs (bootstrapped
-    # once by hand), `update` has nothing to update and fails; that must not
-    # fail the release itself.
     continue-on-error: true
     steps:
-      - name: Install wingetcreate
-        run: |
-          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
-
-      - name: Submit winget manifest update
-        env:
-          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
-        run: |
-          .\wingetcreate.exe update khanhtd36.tuxedo-khanhtd36 `
-            --version "${{ needs.release.outputs.version }}" `
-            --urls "${{ needs.release.outputs.windows_asset_url }}" `
-            --submit `
-            --token "$env:WINGET_TOKEN"
+      - uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: khanhtd36.tuxedo-khanhtd36
+          installers-regex: '_x86_64-pc-windows-msvc\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
 
   homebrew:
     needs: release
