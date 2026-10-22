@@ -183,11 +183,13 @@ const RELEASE_URL: &str = "https://api.github.com/repos/khanhtd36/tuxedo/release
 const REPO_URL: &str = "https://github.com/khanhtd36/tuxedo";
 const BREW_FORMULA: &str = "khanhtd36/tap/tuxedo-khanhtd36";
 
-/// Fork release tags carry a `fork-` prefix (`fork-v2026.8.1-khanhtd36.1`)
-/// so they never collide with upstream's `v*` tags. Drop it so the tag reads
-/// like an ordinary version in the status-bar hint and in [`is_newer`].
-fn strip_fork_prefix(tag: &str) -> &str {
-    tag.strip_prefix("fork-").unwrap_or(tag)
+/// Fork release tags carry a `fork-v` prefix (`fork-v2026.8.1-khanhtd36.1`)
+/// so they never collide with upstream's `v*` tags. Drop it, and any bare
+/// `v`, so the tag is a plain version: [`install`] rebuilds the tag and asset
+/// names from it, and it reads like a version in the status-bar hint.
+fn version_of(tag: &str) -> &str {
+    let tag = tag.strip_prefix("fork-").unwrap_or(tag);
+    tag.strip_prefix('v').unwrap_or(tag)
 }
 
 fn check_for_update() -> Option<String> {
@@ -212,7 +214,7 @@ fn check_for_update() -> Option<String> {
     // rate-limited.
     let tag = fetch_latest_body()
         .and_then(|b| parse_tag_from_release_json(&b))
-        .map(|t| strip_fork_prefix(&t).to_string());
+        .map(|t| version_of(&t).to_string());
     if let Some(p) = &cache_path {
         let _ = write_cache(p, now, tag.as_deref().unwrap_or(""));
     }
@@ -239,7 +241,7 @@ pub fn check_now() -> Result<Latest, String> {
         Manual::Fetch => {
             let tag = fetch_latest_body()
                 .and_then(|b| parse_tag_from_release_json(&b))
-                .map(|t| strip_fork_prefix(&t).to_string());
+                .map(|t| version_of(&t).to_string());
             if let Some(p) = &cache_path {
                 let _ = write_cache(p, now, tag.as_deref().unwrap_or(""));
             }
@@ -333,8 +335,8 @@ pub fn parse_tag_from_release_json(body: &str) -> Option<String> {
 /// back to lexicographic comparison of that segment, so the fork suffix in
 /// `2026.8.1-khanhtd36.2` compares its build number as a number.
 pub fn is_newer(latest: &str, current: &str) -> bool {
-    let l = strip_fork_prefix(latest).trim_start_matches('v');
-    let c = strip_fork_prefix(current).trim_start_matches('v');
+    let l = version_of(latest);
+    let c = version_of(current);
     let mut li = l.split(['.', '-']);
     let mut ci = c.split(['.', '-']);
     loop {
@@ -382,12 +384,13 @@ fn now_epoch() -> u64 {
 /// Read a cache file. Returns `(epoch_secs, tag)` on success. Format is a
 /// tiny JSON-ish payload: `{"checked_at": <int>, "tag": "<str>"}`. An empty
 /// `tag` is a sentinel for a cached failure (see [`NEGATIVE_CACHE_TTL`]);
-/// callers distinguish success from failure on the returned string.
+/// callers distinguish success from failure on the returned string. Older
+/// builds cached the tag with its `v`, so it's normalized on the way out.
 fn read_cache(path: &Path) -> Option<(u64, String)> {
     let body = std::fs::read_to_string(path).ok()?;
     let ts = scan_int(&body, "\"checked_at\"")?;
     let tag = scan_str(&body, "\"tag\"").unwrap_or_default();
-    Some((ts, tag))
+    Some((ts, version_of(&tag).to_string()))
 }
 
 fn write_cache(path: &Path, now: u64, tag: &str) -> io::Result<()> {
@@ -557,6 +560,32 @@ mod tests {
         assert!(is_newer("v2026.9.1-khanhtd36.1", current));
         // A stale cached upstream tag for the same base version isn't newer.
         assert!(!is_newer("v2026.8.1", current));
+    }
+
+    #[test]
+    fn version_of_drops_tag_prefixes() {
+        assert_eq!(
+            version_of("fork-v2026.8.1-khanhtd36.4"),
+            "2026.8.1-khanhtd36.4"
+        );
+        assert_eq!(version_of("v2026.8.1"), "2026.8.1");
+        assert_eq!(version_of("2026.8.1"), "2026.8.1");
+    }
+
+    #[test]
+    fn read_cache_normalizes_old_v_tag() {
+        let dir = std::env::temp_dir().join(format!(
+            "tuxedo-update-vtag-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("latest_version.json");
+        write_cache(&path, 1_700_000_000, "v2026.8.1-khanhtd36.4").unwrap();
+        let (_, tag) = read_cache(&path).unwrap();
+        assert_eq!(tag, "2026.8.1-khanhtd36.4");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
