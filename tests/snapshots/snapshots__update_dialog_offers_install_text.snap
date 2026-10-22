@@ -16,7 +16,7 @@ expression: buffer_to_text(&buf)
   7   (C) Order new running shoes +health @errands                                                  
  (8)  NO PRIORITY  ────────────────────────────────────────────────────────────────────             
   8       Migra┌ tuxedo · update ──────────────────────────────────────────────────┐                
-  9       Pay r│  tuxedo 2026.8.1-khanhtd36.4 → 9999.1.1                           │                
+  9       Pay r│  tuxedo 2026.8.1-khanhtd36.5 → 9999.1.1                           │                
  10       Pick │  https://github.com/khanhtd36/tuxedo/releases/tag/fork-v9999.1.1  │                
  11       Sched│                                                                   │                
  12       Read │  y install · n cancel                                             │                
@@ -33,4 +33,4 @@ expression: buffer_to_text(&buf)
                                                                                                     
                                                                                                     
                                                                                                     
- UPDATE   y install · n cancel  15 open · 2026-05-06 · tuxedo 2026.8.1-khanhtd36.4 · ↑ 9999.1.1 (U)
+ UPDATE   y install · n cancel  15 open · 2026-05-06 · tuxedo 2026.8.1-khanhtd36.5 · ↑ 9999.1.1 (U)
